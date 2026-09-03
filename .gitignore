@@ -1,0 +1,4 @@
+node_modules/
+test/*.docx
+~$*.docx
+README.docx

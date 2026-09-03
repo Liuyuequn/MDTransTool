@@ -1,0 +1,28 @@
+{
+  "name": "mdtranstool",
+  "version": "0.1.0",
+  "description": "MDTT - Markdown 转 docx 命令行工具",
+  "type": "module",
+  "bin": {
+    "MDTT": "./src/cli.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node test/run-test.mjs"
+  },
+  "keywords": [
+    "markdown",
+    "docx",
+    "converter",
+    "cli"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "docx": "^9.7.1",
+    "image-size": "^2.0.2",
+    "markdown-it": "^15.0.1",
+    "xml-js": "^1.6.11"
+  }
+}
