@@ -37,7 +37,8 @@ ${argsHelpText()}
 说明:
   - 尺寸参数（页边距、自定义页面宽高）为纯数字，单位 cm
   - 字号参数接受数字（pt）或中文字号名（如 四号、小五）
-  - 页码格式模板中 X 表示当前页码、Y 表示总页数`;
+  - 页码格式模板中 X 表示当前页码、Y 表示总页数
+  - 文件名可省略后缀：自动匹配同目录同名的 .md / .docx（两者同时存在时须写明后缀）`;
 
 const argv = process.argv.slice(2);
 
@@ -74,7 +75,20 @@ if (positional.length === 3 && positional[1] === "to" && ["md", "docx"].includes
   process.exit(1);
 }
 
-const inputPath = path.resolve(positional[0]);
+let inputPath = path.resolve(positional[0]);
+
+// ============ 后缀自动匹配：未写后缀且文件不存在时，尝试补 .md / .docx ============
+// 后缀即转换方向：两者同时存在时无法自动决定，要求用户写明
+if (!fs.existsSync(inputPath) && path.extname(inputPath) === "") {
+  const candidates = [".md", ".docx"].filter((e) => fs.existsSync(inputPath + e));
+  if (candidates.length === 1) {
+    inputPath += candidates[0];
+    console.log(`提示: 已自动匹配 ${positional[0]}${candidates[0]}`);
+  } else if (candidates.length === 2) {
+    console.error(`错误: ${positional[0]}.md 与 ${positional[0]}.docx 同时存在，请写明后缀以指定转换方向（.md 转 docx、.docx 转 Markdown）`);
+    process.exit(1);
+  }
+}
 
 if (!fs.existsSync(inputPath)) {
   console.error(`错误: 找不到文件 ${inputPath}`);
@@ -91,7 +105,11 @@ const ext = path.extname(inputPath).toLowerCase();
 
 // ============ 位置参数校验：扩展名即转换方向（.md→docx、.docx→md），只允许一个位置参数 ============
 if (ext !== ".md" && ext !== ".docx") {
-  console.error(`错误: 不支持的文件类型「${ext}」，仅支持 .md（转 docx）与 .docx（转 Markdown）`);
+  if (ext === "") {
+    console.error("错误: 请写明文件后缀（.md 转 docx、.docx 转 Markdown）");
+  } else {
+    console.error(`错误: 不支持的文件类型「${ext}」，仅支持 .md（转 docx）与 .docx（转 Markdown）`);
+  }
   process.exit(1);
 }
 if (positional.length !== 1) {

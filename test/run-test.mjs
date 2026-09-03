@@ -206,6 +206,35 @@ expectErrorWith(
   expectError("不支持的扩展名报错", [txtPath]);
   fs.unlinkSync(txtPath);
 }
+{
+  // 无后缀文件存在：提示写明后缀（而非报“不支持的文件类型「」”）
+  const noExtPath = path.join(__dirname, "no-extension-file");
+  fs.writeFileSync(noExtPath, "test", "utf-8");
+  expectErrorWith("无后缀文件提示写明后缀", [noExtPath], "请写明文件后缀");
+  fs.unlinkSync(noExtPath);
+}
+{
+  // 后缀自动匹配：仅 .md 存在 → 自动补全并转换成功；.md 与 .docx 共存 → 报错要求写明
+  const stem = path.join(__dirname, "auto-ext-stem");
+  const mdPath2 = `${stem}.md`;
+  const docxPath2 = `${stem}.docx`;
+  // 清理残留后仅创建 .md
+  for (const p of [mdPath2, docxPath2, `${stem}-out.docx`]) { if (fs.existsSync(p)) fs.unlinkSync(p); }
+  fs.writeFileSync(mdPath2, "# 自动匹配测试\n\n正文段落。\n", "utf-8");
+  const stdout = execFileSync(process.execPath, [cli, stem, "-o", docxPath2], { stdio: "pipe", encoding: "utf-8" });
+  check("省略后缀自动匹配 .md 并转换", stdout.includes("已自动匹配") && fs.existsSync(docxPath2));
+  // 此时 .md 与 .docx 共存，再省略后缀应报错
+  try {
+    execFileSync(process.execPath, [cli, stem, "-o", `${stem}-out.docx`], { stdio: "pipe" });
+    check("双后缀共存时报错要求写明", false);
+  } catch (e) {
+    check("双后缀共存时报错要求写明", e.status === 1 && e.stderr.toString().includes("写明后缀"));
+  }
+  // 无任何匹配 → 仍走“找不到文件”
+  expectErrorWith("无匹配后缀提示找不到文件", [path.join(__dirname, "no-such-stem")], "找不到文件");
+  fs.unlinkSync(mdPath2);
+  fs.unlinkSync(docxPath2);
+}
 
 // ============ 用例 5：docx → Markdown ============
 console.log("\n—— 用例 5：docx → Markdown ——");
