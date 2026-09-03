@@ -41,9 +41,19 @@ ${argsHelpText()}
 
 const argv = process.argv.slice(2);
 
-if (argv.length === 0 || argv.includes("--help") || argv.includes("-h")) {
+// 引号使用提示：文件名含空格或特殊符号时，须用英文引号将「文件名+后缀」整体包裹
+// （半包裹如 "文件.md".docx 会被 PowerShell 解析为属性访问，整个参数被丢弃，程序收到的将是空参数）
+const QUOTE_TIP = '提示: 文件名包含空格或特殊符号时，请用英文引号将「文件名+后缀」整体包裹（后缀也必须在引号内），例如: MDTT "我的 文档.md"';
+
+if (argv.includes("--help") || argv.includes("-h")) {
   console.log(USAGE);
   process.exit(0);
+}
+if (argv.length === 0) {
+  console.error("错误: 请指定要转换的文件");
+  console.error(QUOTE_TIP);
+  console.log(USAGE);
+  process.exit(1);
 }
 
 // 位置参数必须在最前，遇到第一个 - 开头的 token 后其余全部视为参数项
@@ -52,8 +62,15 @@ const positional = firstOption === -1 ? argv : argv.slice(0, firstOption);
 const rest = firstOption === -1 ? [] : argv.slice(firstOption);
 
 if (positional.length < 1) {
-  console.error("错误: 请指定要转换的文件\n");
+  console.error("错误: 请指定要转换的文件");
+  console.error(QUOTE_TIP);
   console.log(USAGE);
+  process.exit(1);
+}
+
+// 旧语法提示：MDTT <文件>.docx to md → 扩展名即转换方向，无需 to md
+if (positional.length === 3 && positional[1] === "to" && ["md", "docx"].includes(positional[2].toLowerCase())) {
+  console.error(`错误: 已不再需要「${positional.slice(1).join(" ")}」，扩展名即转换方向，请直接使用: MDTT ${positional[0]}`);
   process.exit(1);
 }
 
@@ -61,6 +78,12 @@ const inputPath = path.resolve(positional[0]);
 
 if (!fs.existsSync(inputPath)) {
   console.error(`错误: 找不到文件 ${inputPath}`);
+  if (positional.length > 1) {
+    // 文件名含空格未加引号时，会被终端拆成多段——重组原始输入并给出正确写法
+    console.error(`提示: 文件名疑似包含空格但未加引号，被终端拆成了多段，请用英文引号将「文件名+后缀」整体包裹，如: MDTT "${positional.join(" ")}"`);
+  } else {
+    console.error("提示: 请检查文件名和路径是否输入正确");
+  }
   process.exit(1);
 }
 
@@ -73,6 +96,7 @@ if (ext !== ".md" && ext !== ".docx") {
 }
 if (positional.length !== 1) {
   console.error(`错误: 无法识别的参数「${positional.slice(1).join(" ")}」，用法：MDTT <文件名>${ext} [选项参数]`);
+  console.error(QUOTE_TIP);
   process.exit(1);
 }
 

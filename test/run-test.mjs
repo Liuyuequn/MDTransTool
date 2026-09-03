@@ -175,13 +175,30 @@ function expectError(name, args) {
     check(name, e.status === 1 && e.stderr.length > 0);
   }
 }
+// 在 expectError 基础上，额外校验 stderr 含指定提示文本（用于验证错误反馈的引导信息）
+function expectErrorWith(name, args, text) {
+  try {
+    execFileSync(process.execPath, [cli, ...args], { stdio: "pipe" });
+    check(name, false);
+  } catch (e) {
+    check(name, e.status === 1 && e.stderr.toString().includes(text));
+  }
+}
 expectError("未知参数报错", [mdPath, "--no-such-param"]);
 expectError("互斥参数报错（--header 与 --header-left）", [mdPath, "--header", "A", "--header-left", "B"]);
 expectError("未知预设报错", [mdPath, "--preset", "nope"]);
 expectError("页边距格式错误报错", [mdPath, "-m", "abc"]);
-expectError("旧语法 md to docx 报错", [mdPath, "to", "docx"]);
-expectError("旧语法 docx to md 报错", [path.join(__dirname, "sample-default.docx"), "to", "md"]);
+expectErrorWith("旧语法 md to docx 提示直接使用", [mdPath, "to", "docx"], "请直接使用");
+expectErrorWith("旧语法 docx to md 提示直接使用", [path.join(__dirname, "sample-default.docx"), "to", "md"], "请直接使用");
 expectError("多余位置参数报错", [mdPath, "垃圾参数"]);
+expectErrorWith("无参数报错并提示引号包裹", [], "英文引号");
+expectErrorWith("仅选项参数无文件报错", ["--preset", "legal"], "请指定要转换的文件");
+expectErrorWith("找不到文件提示检查文件名", ["no-such-file.md"], "请检查文件名");
+expectErrorWith(
+  "文件名含空格未加引号提示整体包裹",
+  ["no-such-dir", "我的", "文件.md"],
+  'MDTT "no-such-dir 我的 文件.md"',
+);
 {
   // 不支持的扩展名：先造一个存在的 .txt 文件，确保走到扩展名校验分支而非“找不到文件”
   const txtPath = path.join(__dirname, "unsupported.txt");
