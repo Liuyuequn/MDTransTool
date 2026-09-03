@@ -13,22 +13,23 @@
 ```bash
 MDTT <文件名>.md [参数]                  Markdown 转 docx
 MDTT <文件名>.docx [参数]                docx 转 Markdown
+MDTT <文件名>.docx --save-preset <预设名>  提取 docx 版式为自定义预设并保存
 ```
 
 输出文件默认与源文件同目录、同名（仅扩展名变化）。文件名可省略后缀，将自动匹配同目录同名的 `.md` / `.docx`（两者同时存在时需写明后缀）。
 
-转化的文档是法律相关文档时请添加预设参数：`MDTT notes.md --preset legal`。
+转化的文档是法律相关文档时请添加预设参数：`MDTT notes.md --preset sundy`。
 
 ## 常用示例
 
 ### Markdown → docx
 
 ```bash
-MDTT notes.md                              # 默认格式（与 legal 排版相同：仿宋四号、首行缩进两字符、行距1.28、H1居中；仅无页眉页脚页码）
-MDTT notes.md --preset legal               # 法律文书预设（圣典律师事务所专用排版）
+MDTT notes.md                              # 默认格式（与 sundy 排版相同：仿宋四号、首行缩进两字符、行距1.28、H1居中；仅无页眉页脚页码）
+MDTT notes.md --preset sundy               # 圣典法律文书预设（圣典律师事务所专用排版）
 MDTT notes.md -o output/result.docx        # 指定输出路径
 MDTT notes.md --overwrite                  # 覆盖已有文件
-MDTT notes.md --preset legal --overwrite   # 使用法律文书预设并覆盖
+MDTT notes.md --preset sundy --overwrite   # 使用法律文书预设并覆盖
 ```
 
 ### docx → Markdown
@@ -36,17 +37,25 @@ MDTT notes.md --preset legal --overwrite   # 使用法律文书预设并覆盖
 ```bash
 MDTT report.docx                           # 转为同名 .md 文件
 MDTT report.docx -o output.md              # 指定输出路径
-MDTT report.docx --overwrite               # 覆盖已有文件
+MDTT report.docx --overwrite               # 覆盖已存在的文件
+```
+
+### 版式提取（docx → 自定义预设）
+
+```bash
+MDTT 模板.docx --save-preset firm          # 提取 Word 模板版式保存为自定义预设 firm
+MDTT notes.md --preset firm                # 用自定义预设 firm 转换
+MDTT 模板.docx --save-preset firm --overwrite  # 覆盖同名自定义预设
 ```
 
 ## 预设方案（仅 md → docx 时有效）
 
 | 预设                 | 说明                                                           |
 | ------------------ | ------------------------------------------------------------ |
-| `--preset legal`   | 法律文书：A4、宋体标题、仿宋正文四号、首行缩进2字符、页眉（圣典律师事务所 logo + 渐变色带）、页脚页码（五号） |
-| `--preset report`  | 报告：A4、微软雅黑11pt、页脚居中页码                                        |
-| `--preset compact` | 紧凑排版：五号字、1.5cm页边距、窄段距                                        |
-| `--preset cover`   | 封面页：内容垂直居中、无页眉页脚页码                                           |
+| `--preset sundy`   | 圣典法律文书：A4、宋体标题、仿宋正文四号、首行缩进2字符、页眉（圣典律师事务所 logo + 渐变色带）、页脚页码（五号） |
+| `--preset <自定义名>` | 用 `--save-preset` 从 docx 提取的自定义预设（存于 `~/.mdtt/presets/`）        |
+
+自定义预设提取范围：页面（尺寸/方向/页边距）、正文字体字号、段落（首行缩进/行距/段后距/对齐）、六级标题样式、页眉页脚文字与字体字号、页码（位置/格式/起始页）；页眉图片、渐变色带等无法映射的元素自动跳过并注明。
 
 ## 常用参数速查（仅 md → docx 时有效）
 
@@ -61,7 +70,8 @@ MDTT report.docx --overwrite               # 覆盖已有文件
 | `-p bottom`                 | 页码位置（top/bottom/none） |
 | `--page-num-format 第X页/共Y页` | 页码格式                  |
 | `-o 路径`                     | 指定输出文件路径              |
-| `--overwrite`               | 覆盖已有输出文件              |
+| `--save-preset <预设名>`       | 将 docx 版式提取为自定义预设（仅 .docx） |
+| `--overwrite`               | 覆盖已有输出文件 / 同名自定义预设       |
 | `--help`                    | 查看全部参数                |
 
 ## 注意事项

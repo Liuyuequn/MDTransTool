@@ -1,4 +1,4 @@
-// 校验脚本：三组用例（默认转换 / preset legal / 自定义参数），检查生成的 docx 内部结构
+// 校验脚本：用例（默认转换 / preset sundy / 自定义参数 / 错误处理 / docx→md / 合并单元格 / 版式提取），检查生成的 docx 内部结构
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -55,7 +55,7 @@ function docDefaults(stylesXml) {
 // ============ 用例 1：默认转换 ============
 console.log("—— 用例 1：默认转换 ——");
 const d = await convert("sample-default.docx");
-// 约定：默认输出 = legal 排版 − 页眉页脚页码（期望值从 defaultOptions 推导）
+// 约定：默认输出 = sundy 排版 − 页眉页脚页码（期望值从 defaultOptions 推导）
 const DF = defaultOptions;
 const dfLineTwip = String(Math.round(DF.paragraph.line * 240));
 const dfIndentChars = String(Math.round(DF.paragraph.firstLineChars * 100));
@@ -87,14 +87,14 @@ const dH1 = styleBlock(d.styles, "Heading1");
   ["缺失图片容错提示", d.document.includes("图片缺失")],
 ].forEach(([n, c]) => check(n, c));
 
-// ============ 用例 2：preset legal ============
-console.log("\n—— 用例 2：preset legal ——");
-const l = await convert("sample-legal.docx", ["--preset", "legal"]);
+// ============ 用例 2：preset sundy ============
+console.log("\n—— 用例 2：preset sundy ——");
+const l = await convert("sample-sundy.docx", ["--preset", "sundy"]);
 const h1 = styleBlock(l.styles, "Heading1");
 const h4 = styleBlock(l.styles, "Heading4");
 const lDefaults = docDefaults(l.styles);
-// 期望值全部从 legal 预设声明推导
-const LG = presets.legal;
+// 期望值全部从 sundy 预设声明推导
+const LG = presets.sundy;
 const lgA4w = String(PAGE_SIZES[LG.page.size].width);
 const lgMarginTop = String(cmToTwip(LG.page.margin.top));
 const lgMarginLeft = String(cmToTwip(LG.page.margin.left));
@@ -192,7 +192,7 @@ expectErrorWith("旧语法 md to docx 提示直接使用", [mdPath, "to", "docx"
 expectErrorWith("旧语法 docx to md 提示直接使用", [path.join(__dirname, "sample-default.docx"), "to", "md"], "请直接使用");
 expectError("多余位置参数报错", [mdPath, "垃圾参数"]);
 expectErrorWith("无参数报错并提示引号包裹", [], "英文引号");
-expectErrorWith("仅选项参数无文件报错", ["--preset", "legal"], "请指定要转换的文件");
+expectErrorWith("仅选项参数无文件报错", ["--preset", "sundy"], "请指定要转换的文件");
 expectErrorWith("找不到文件提示检查文件名", ["no-such-file.md"], "请检查文件名");
 expectErrorWith(
   "文件名含空格未加引号提示整体包裹",
@@ -320,6 +320,87 @@ console.log("\n—— 用例 6：docx → md 合并单元格（HTML 回退）—
   check("合并表格：内容完整（横跨两列/纵跨两行/B3）", out.includes("横跨两列") && out.includes("纵跨两行") && out.includes("B3"));
   check("合并表格：未误生成管道表格", !out.includes("| ---"));
   for (const p of [docxPath, mdOutPath]) { if (fs.existsSync(p)) fs.unlinkSync(p); }
+}
+
+// ============ 用例 7：--save-preset 格式提取与复用 ============
+console.log("\n—— 用例 7：--save-preset 格式提取与复用 ——");
+{
+  // MDTT_HOME 重定向到临时目录，隔离用户真实的 ~/.mdtt/presets/
+  const tmpHome = path.join(__dirname, "tmp-mdtt-home");
+  fs.rmSync(tmpHome, { recursive: true, force: true });
+  const env = { ...process.env, MDTT_HOME: tmpHome };
+  const run = (args) => execFileSync(process.execPath, [cli, ...args], { stdio: "pipe", encoding: "utf-8", env });
+
+  // ---- 7.1 从自定义参数生成的 docx 提取 ----
+  const srcDocx = path.join(__dirname, "preset-src.docx");
+  execFileSync(process.execPath, [cli, mdPath, "-o", srcDocx,
+    "--font", "黑体", "--font-size", "小四",
+    "-p", "bottom", "--page-num-format", "第X页", "--page-num-start", "3",
+    "--header", "测试页眉", "--align", "justify", "--line-height", "1.5",
+  ], { stdio: "pipe" });
+  const out1 = run([srcDocx, "--save-preset", "case7"]);
+  check("提取保存成功并输出摘要", out1.includes("预设已保存") && out1.includes("提取结果"));
+  const pj = JSON.parse(fs.readFileSync(path.join(tmpHome, "presets", "case7.json"), "utf-8"));
+  check("提取-页面 A4 纵向", pj.options.page?.size === "A4" && pj.options.page?.orientation === "portrait");
+  check("提取-页边距 2.54/3.18", pj.options.page?.margin?.top === 2.54 && pj.options.page?.margin?.left === 3.18);
+  check("提取-正文黑体", pj.options.fonts?.body?.eastAsia === "黑体");
+  check("提取-正文小四 12pt", pj.options.sizes?.body === 12);
+  check("提取-行距 1.5", pj.options.paragraph?.line === 1.5);
+  check("提取-首行缩进 2 字符", pj.options.paragraph?.firstLineChars === 2);
+  check("提取-正文两端对齐", pj.options.paragraph?.align === "justify");
+  check("提取-页眉文字与居中", pj.options.header?.text === "测试页眉" && pj.options.header?.align === "center");
+  check("提取-页码格式「第X页」", pj.options.pageNumber?.format === "第X页");
+  check("提取-页码位置与起始页", pj.options.pageNumber?.pos === "bottom" && pj.options.pageNumber?.start === 3);
+  check("提取-预设文件含来源与时间元信息", pj.source === srcDocx && typeof pj.extractedAt === "string");
+
+  // ---- 7.2 复用自定义预设转换 ----
+  const reusedDocx = path.join(__dirname, "preset-reused.docx");
+  run([mdPath, "-o", reusedDocx, "--preset", "case7"]);
+  check("复用自定义预设转换成功", fs.existsSync(reusedDocx));
+  const rz = await JSZip.loadAsync(fs.readFileSync(reusedDocx));
+  const rDoc = await rz.file("word/document.xml").async("string");
+  const rStyles = await rz.file("word/styles.xml").async("string");
+  const rFooter = Object.keys(rz.files).find((f) => /^word\/footer\d+\.xml$/.test(f));
+  const rFtr = rFooter ? await rz.file(rFooter).async("string") : "";
+  check("复用-正文黑体", rStyles.includes('w:eastAsia="黑体"'));
+  check("复用-正文小四（24 半磅）", rStyles.includes('w:val="24"'));
+  check("复用-行距 1.5（line=360）", rStyles.includes('w:line="360"'));
+  check("复用-两端对齐", rDoc.includes('w:val="both"'));
+  check("复用-起始页码 3", rDoc.includes('w:start="3"'));
+  check("复用-页码模板", rFtr.includes("第") && rFtr.includes("PAGE"));
+
+  // ---- 7.3 sundy docx 全量往返（提取值与 sundy 预设逐项互逆） ----
+  const sundyDocx = path.join(__dirname, "preset-sundy.docx");
+  execFileSync(process.execPath, [cli, mdPath, "-o", sundyDocx, "--preset", "sundy"], { stdio: "pipe" });
+  run([sundyDocx, "--save-preset", "sundycopy"]);
+  const lj = JSON.parse(fs.readFileSync(path.join(tmpHome, "presets", "sundycopy.json"), "utf-8"));
+  const lo = lj.options;
+  check("sundy往返-正文仿宋/TNR 四号", lo.fonts?.body?.eastAsia === "仿宋" && lo.fonts?.body?.ascii === "Times New Roman" && lo.sizes?.body === 14);
+  check("sundy往返-标题宋体 H1-H3 字号", lo.fonts?.heading?.eastAsia === "宋体" && JSON.stringify(lo.sizes?.heading) === JSON.stringify([22, 16, 14, 14, 14, 14]));
+  check("sundy往返-H1 居中加粗 H4 不加粗", lo.heading?.align?.[0] === "center" && lo.heading?.bold?.[0] === true && lo.heading?.bold?.[3] === false);
+  check("sundy往返-标题段前 0.5 行段后 0 行", lo.heading?.spacing?.beforeLines === 0.5 && lo.heading?.spacing?.afterLines === 0);
+  check("sundy往返-段落三项（缩进2/行距1.28/段后0.5行）", lo.paragraph?.firstLineChars === 2 && lo.paragraph?.line === 1.28 && lo.paragraph?.afterLines === 0.5);
+  check("sundy往返-页眉三行左对齐", lo.header?.text?.split("\n").length === 3 && lo.header?.align === "left");
+  check("sundy往返-页眉字号 9", lo.sizes?.header === 9);
+  check("sundy往返-页脚字号 10.5", lo.sizes?.footer === 10.5);
+  check("sundy往返-页码「第X页/共Y页」居中", lo.pageNumber?.format === "第X页/共Y页" && lo.pageNumber?.align === "center" && lo.pageNumber?.pos === "bottom");
+  check("sundy往返-页眉图片/渐变已注明跳过", (lj.notes ?? []).some((n) => n.includes("页眉")));
+
+  // ---- 7.4 错误与边界 ----
+  try { run([srcDocx, "--save-preset", "case7"]); check("预设重名报错提示 --overwrite", false); }
+  catch (e) { check("预设重名报错提示 --overwrite", e.status === 1 && e.stderr.includes("--overwrite")); }
+  const outOverwrite = run([srcDocx, "--save-preset", "case7", "--overwrite"]);
+  check("--overwrite 可覆盖预设", outOverwrite.includes("预设已保存"));
+  try { run([mdPath, "--save-preset", "bad"]); check(".md 文件禁止提取", false); }
+  catch (e) { check(".md 文件禁止提取", e.status === 1 && e.stderr.includes("仅支持 .docx")); }
+  try { run([srcDocx, "--save-preset", "a/b"]); check("非法预设名报错", false); }
+  catch (e) { check("非法预设名报错", e.status === 1 && e.stderr.includes("不合法")); }
+  try { run([mdPath, "--preset", "no-such-preset"]); check("未知预设列出自定义预设", false); }
+  catch (e) { check("未知预设列出自定义预设", e.status === 1 && e.stderr.includes("自定义") && e.stderr.includes("case7")); }
+
+  // 清理
+  fs.rmSync(tmpHome, { recursive: true, force: true });
+  for (const p of [srcDocx, reusedDocx, sundyDocx]) fs.rmSync(p, { force: true });
 }
 
 console.log(failed ? `\n${failed} 项校验未通过` : "\n全部校验通过");

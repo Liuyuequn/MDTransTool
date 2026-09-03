@@ -11,6 +11,24 @@ import {
   mergeOptions,
 } from "../src/options.js";
 import { parseArgs, parseMargin, parseHeadingSize } from "../src/args.js";
+import { validPresetName } from "../src/preset-extract.js";
+
+// ============ preset-extract.js：预设名校验 ============
+
+test("validPresetName: 中英文/数字/下划线/连字符合法", () => {
+  assert.equal(validPresetName("firm"), true);
+  assert.equal(validPresetName("律所模板1"), true);
+  assert.equal(validPresetName("my-preset_2"), true);
+});
+
+test("validPresetName: 拒绝路径分隔符、空格与空值", () => {
+  assert.equal(validPresetName("a/b"), false);
+  assert.equal(validPresetName("a b"), false);
+  assert.equal(validPresetName(".."), false);
+  assert.equal(validPresetName("-x"), false); // 不以连字符开头
+  assert.equal(validPresetName(""), false);
+  assert.equal(validPresetName(null), false);
+});
 
 // ============ options.js：单位换算 ============
 
@@ -184,10 +202,10 @@ test("parseArgs: flag 参数无需取值", () => {
 });
 
 test("parseArgs: 输出控制参数单独归位（output/overwrite/preset）", () => {
-  const r = parseArgs(["-o", "out.docx", "--overwrite", "--preset", "legal"]);
+  const r = parseArgs(["-o", "out.docx", "--overwrite", "--preset", "sundy"]);
   assert.equal(r.output, "out.docx");
   assert.equal(r.overwrite, true);
-  assert.equal(r.preset, "legal");
+  assert.equal(r.preset, "sundy");
 });
 
 test("parseArgs: 未知参数记入 errors", () => {

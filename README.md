@@ -22,6 +22,8 @@ MDTT 是一款 Markdown 与 Word（docx）互转命令行工具。支持双向�
 
 - [turndown](https://github.com/mixmark-io/turndown) + [turndown-plugin-gfm](https://github.com/mixmark-io/turndown-plugin-gfm) — HTML → Markdown（docx → md）
 
+- [jszip](https://github.com/Stuk/jszip) + [xml-js](https://github.com/nashwaan/xml-js) — docx 解包与 OOXML 解析（版式提取）
+
 ### 项目结构
 
 ```
@@ -36,13 +38,14 @@ MDTransTool/
 │   ├── styles.js             # md → docx 样式表、字体对象、间距换算、编号
 │   ├── page.js               # md → docx 页面属性（尺寸/边距/垂直对齐/页码格式）
 │   ├── docx-to-md.js         # docx → md 核心（mammoth 提取 → turndown 转换）
+│   ├── preset-extract.js     # docx 版式提取为自定义预设（解包 OOXML 逆向映射）
 │   ├── args.js               # 参数解析：-- 参数规格表与校验
-│   ├── presets.js            # 预设方案（legal / report / compact / cover / default）
+│   ├── presets.js            # 预设方案（sundy：圣典法律文书）
 │   └── options.js            # 默认配置、单位换算、深合并
 └── test/
     ├── sample.md             # 测试样例（覆盖全部支持的语法）
-    ├── unit-test.mjs         # 单元测试（纯函数层：换算/字号/合并/参数解析）
-    ├── run-test.mjs          # 端到端校验（六组用例：默认/legal/自定义/错误处理/docx→md/合并单元格）
+    ├── unit-test.mjs         # 单元测试（纯函数层：换算/字号/合并/参数解析/预设名校验）
+    ├── run-test.mjs          # 端到端校验（七组用例：默认/sundy/自定义/错误处理/docx→md/合并单元格/版式提取）
     └── assets/               # 测试图片
 ```
 
@@ -68,6 +71,7 @@ npm link
 ```bash
 MDTT <文件名>.md [参数]                  Markdown 转 docx
 MDTT <文件名>.docx [参数]                docx 转 Markdown
+MDTT <文件名>.docx --save-preset <预设名>  提取 docx 版式为自定义预设并保存
 ```
 
 文件名可省略后缀：MDTT 会自动匹配同目录同名的 `.md` / `.docx` 文件（两者同时存在时需写明后缀，因为后缀决定转换方向）。
@@ -79,16 +83,16 @@ MDTT <文件名>.docx [参数]                docx 转 Markdown
 日常工作中高频使用的命令：
 
 ```bash
-MDTT <文件名>.md                              # 普通文档快速转换（默认格式：与 legal 排版相同，仅无页眉页脚页码）
+MDTT <文件名>.md                              # 普通文档快速转换（默认格式：与 sundy 排版相同，仅无页眉页脚页码）
 MDTT <文件名>                                  # 省略后缀：自动匹配同目录同名的 .md / .docx
 MDTT "<含空格的文件名>.md"                      # 文件名含空格/特殊符号时，用英文引号整体包裹（含后缀）
 MDTT <文件名>.md -p bottom                    # 在页脚添加居中纯数字的页码
 MDTT <文件名>.md -p bottom --page-num-format 第X页/共Y页  # 页脚改为「第X页/共Y页」式页码
 MDTT <文件名>.md -o <输出路径>.docx           # 输出到指定路径（如直接存进案件文件夹）
-MDTT <文件名>.md --preset legal               # 出法律文书（最常用：圣典排版，页眉页脚页码齐备）
-MDTT <文件名>.md --preset legal --font 黑体   # 在法律文书预设基础上设置字体
-MDTT <文件名>.md --preset legal --overwrite   # 如有重名文件，直接覆盖旧文件
-MDTT <文件名>.md --preset legal --no-first-page-number  # 法律文书首页（封面）不显示页码
+MDTT <文件名>.md --preset sundy               # 出法律文书（最常用：圣典排版，页眉页脚页码齐备）
+MDTT <文件名>.md --preset sundy --font 黑体   # 在法律文书预设基础上设置字体
+MDTT <文件名>.md --preset sundy --overwrite   # 如有重名文件，直接覆盖旧文件
+MDTT <文件名>.md --preset sundy --no-first-page-number  # 法律文书首页（封面）不显示页码
 MDTT <文件名>.md -p bottom --page-num-start 2 --no-first-page-number  # 封面不计页码，正文从第 2 页起（合同常用）
 MDTT <文件名>.md --header "保密文件"          # 页眉居中显示文字（密级标识、单位名称）
 MDTT <文件名>.md --header-left "委托代理合同" --header-right "2026-09"  # 页眉左右分布（左：文件标题，右：日期）
@@ -97,11 +101,11 @@ MDTT <文件名>.md -m 2.54,3.18,2.54,3.18       # 四边分别设置页边距�
 MDTT <文件名>.md --indent 0                   # 取消首行缩进（英文文档、清单式材料）
 MDTT <文件名>.md --line-height 1.5            # 行距调整为 1.5 倍
 MDTT <文件名>.md --font-size 小四             # 单独调整正文字号（支持中文字号名）
-MDTT <文件名>.md --preset compact             # 紧凑排版（长篇备忘、内部参考资料）
-MDTT <文件名>.md --preset cover               # 封面页（内容垂直居中，单独出封面用）
 MDTT <文件名>.docx                            # 收到 Word 文档转回 Markdown 编辑
 MDTT <文件名>.docx --overwrite                # 重新转换时覆盖已存在的 md 文件
 MDTT <文件名>.docx -o <输出路径>.md           # docx 转 Markdown 并指定输出路径
+MDTT <文件名>.docx --save-preset <预设名>     # 将 Word 文档的版式提取为自定义预设（如律所官方模板）
+MDTT <文件名>.md --preset <预设名>            # 用提取的自定义预设转换
 MDTT --help                                   # 忘记参数时查帮助
 ```
 
@@ -211,30 +215,51 @@ MDTT --help                                   # 忘记参数时查帮助
 
 ### 输出控制
 
-| 参数              | 别名                 | 说明       |
-| --------------- | ------------------ | -------- |
-| `--output <路径>` | `-o`               | 指定输出文件路径 |
-| `--overwrite`   | 覆盖已存在的输出文件（默认报错提示） | <br />   |
+| 参数                    | 别名                 | 说明                                                       |
+| --------------------- | ------------------ | -------------------------------------------------------- |
+| `--output <路径>`       | `-o`               | 指定输出文件路径                                                 |
+| `--overwrite`         | 覆盖已存在的输出文件（默认报错提示） | <br />                                                   |
+| `--preset <预设名>`      | <br />             | 预设方案：内置（见下节）或自定义预设名                                      |
+| `--save-preset <预设名>` | <br />             | 将 docx 的版式提取为自定义预设并保存（仅 .docx，不执行转换），重名时需加 `--overwrite` |
 
 ## 五、预设方案
 
-| 预设                 | 说明                                      |
-| ------------------ | --------------------------------------- |
-| `--preset legal`   | **法律文书**（详见下文完整规范）                      |
-| `--preset report`  | 报告：A4、微软雅黑 11pt、1.15 倍行距、页脚居中页码 `X / Y` |
-| `--preset compact` | 紧凑排版：五号字、1.5cm 页边距、窄段距，适合长文             |
-| `--preset cover`   | 封面页：内容垂直居中，无页眉页脚页码                      |
-| `--preset default` | 显式使用默认值                                 |
+| 预设                | 说明                            |
+| ----------------- | ----------------------------- |
+| `--preset sundy`  | **圣典法律文书**（详见下文完整规范）          |
+| `--preset <自定义名>` | `--save-preset` 提取的自定义预设（见下节） |
 
 预设可与单项参数混用，**单项参数覆盖预设中的对应项**：
 
 ```bash
-MDTT doc.md --preset legal --font 黑体 --header "保密文件"
+MDTT doc.md --preset sundy --font 黑体 --header "保密文件"
 ```
 
 参数优先级：命令行单项参数 > `--preset` 预设 > 默认值。
 
-### legal 预设规范
+### 自定义预设（从 docx 提取版式）
+
+将任意 Word 文档的版式提取为可复用的自定义预设，保存于 `~/.mdtt/presets/`：
+
+```bash
+MDTT 模板.docx --save-preset firm     # 提取版式保存为自定义预设 firm
+MDTT notes.md --preset firm           # 用自定义预设 firm 转换
+MDTT 模板.docx --save-preset firm --overwrite  # 覆盖同名自定义预设
+```
+
+**提取范围**：页面（尺寸/方向/页边距/垂直对齐）、正文字体与字号、段落（首行缩进/行距/段后距/对齐）、六级标题（字体/字号/加粗/对齐/间距）、页眉页脚（文字/对齐/字体字号）、页码（位置/格式/对齐/起始页码）。
+
+**说明**：
+
+- 预设名仅限中英文、数字、下划线、连字符，且不以连字符开头（≤64 字符）
+
+- 页眉图片、渐变色带等无法映射的元素自动跳过，并在提取结果中逐项注明
+
+- 提取后命令行会输出版式摘要，便于核对
+
+- 自定义预设与单项参数可混用，优先级同内置预设
+
+### sundy 预设规范（圣典法律文书）
 
 | 项目   | 设定                                                                                                                                             |
 | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------- |

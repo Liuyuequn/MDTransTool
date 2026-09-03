@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // MDTT 命令行入口
-// 格式：MDTT <文件>.md [参数]              → md 转 docx
-//       MDTT <文件>.docx [参数]            → docx 转 md
+// 格式：MDTT <文件>.md [参数]                       → md 转 docx
+//       MDTT <文件>.docx [参数]                     → docx 转 md
+//       MDTT <文件>.docx --save-preset <预设名>      → 提取 docx 版式为自定义预设
 // 参数优先级：命令行单项参数 > 预设（--preset）> 默认值（options.js）
 
 import fs from "node:fs";
@@ -11,34 +12,42 @@ import { convertDocxFile } from "./docx-to-md.js";
 import { defaultOptions, mergeOptions } from "./options.js";
 import { presets } from "./presets.js";
 import { parseArgs, argsHelpText } from "./args.js";
+import {
+  extractAndSavePreset,
+  loadCustomPreset,
+  listCustomPresets,
+  validPresetName,
+  presetSummaryLines,
+} from "./preset-extract.js";
 
 const USAGE = `MDTT - Markdown Trans Tool
 
 用法:
   MDTT <文件名>.md [参数]                  Markdown 转 docx
   MDTT <文件名>.docx [参数]                docx 转 Markdown
+  MDTT <文件名>.docx --save-preset <预设名>  提取 docx 版式为自定义预设并保存
 
 示例:
   MDTT notes.md                            使用默认格式转为 docx
-  MDTT notes.md --preset legal             使用法律文书预设转为 docx
+  MDTT notes.md --preset sundy             使用圣典法律文书预设转为 docx
   MDTT report.docx                         docx 转为 Markdown
   MDTT report.docx -o output.md            docx 转为 Markdown 并指定输出路径
+  MDTT report.docx --save-preset firm      将 report.docx 的版式保存为自定义预设 firm
+  MDTT notes.md --preset firm              用自定义预设 firm 转换
 
 预设方案（仅 md → docx 时有效）:
-  legal    法律文书（A4、宋体标题/仿宋正文、四号、首行缩进两字符、页眉页脚）
-  report   报告（A4、微软雅黑、页脚页码）
-  compact  紧凑排版（小字号、窄边距）
-  cover    封面页（内容垂直居中、无页眉页脚页码）
-  default  显式使用默认值
+  sundy    圣典法律文书（A4、宋体标题/仿宋正文、四号、首行缩进两字符、页眉页脚）
+  自定义   --save-preset 提取保存于 ~/.mdtt/presets/，用 --preset <名> 调用
 
-参数列表（仅 md → docx 时有效）:
+参数列表（--save-preset 适用于 .docx，其余仅 md → docx 时有效）:
 ${argsHelpText()}
 
 说明:
   - 尺寸参数（页边距、自定义页面宽高）为纯数字，单位 cm
   - 字号参数接受数字（pt）或中文字号名（如 四号、小五）
   - 页码格式模板中 X 表示当前页码、Y 表示总页数
-  - 文件名可省略后缀：自动匹配同目录同名的 .md / .docx（两者同时存在时须写明后缀）`;
+  - 文件名可省略后缀：自动匹配同目录同名的 .md / .docx（两者同时存在时须写明后缀）
+  - --save-preset 提取页面/字体/字号/段落/标题/页眉页脚/页码为预设；页眉图片、渐变色带等无法映射的元素跳过并在结果中注明`;
 
 const argv = process.argv.slice(2);
 
@@ -125,6 +134,32 @@ if (parsed.errors.length) {
   process.exit(1);
 }
 
+// ============ --save-preset：从 docx 提取版式为自定义预设（动作，不执行转换） ============
+if (parsed.savePreset != null) {
+  if (ext !== ".docx") {
+    console.error("错误: --save-preset 仅支持 .docx 文件（从 Word 文档提取版式）");
+    process.exit(1);
+  }
+  try {
+    const { file, options, notes } = await extractAndSavePreset(inputPath, parsed.savePreset, {
+      overwrite: parsed.overwrite,
+    });
+    console.log(`预设已保存: ${parsed.savePreset}`);
+    console.log(`位置: ${file}`);
+    console.log("提取结果:");
+    for (const line of presetSummaryLines(options)) console.log(`  ${line}`);
+    if (notes.length) {
+      console.warn("注意:");
+      for (const n of notes) console.warn(`  - ${n}`);
+    }
+    console.log(`复用方式: MDTT <文件名>.md --preset ${parsed.savePreset}`);
+  } catch (e) {
+    console.error(`提取失败: ${e.message}`);
+    process.exit(1);
+  }
+  process.exit(0);
+}
+
 if (ext === ".docx") {
   // ============ docx → Markdown 模式 ============
   const outputPath = parsed.output
@@ -145,13 +180,29 @@ if (ext === ".docx") {
   }
 } else {
   // ============ Markdown → docx 模式 ============
-  // 预设校验与合并：单项参数 > 预设 > 默认值
-  if (parsed.preset != null && !presets[parsed.preset]) {
-    console.error(`错误: 未知预设「${parsed.preset}」，可选：${Object.keys(presets).join(" / ")}`);
-    process.exit(1);
+  // 预设解析：先内置预设，再 ~/.mdtt/presets/ 自定义预设；单项参数 > 预设 > 默认值
+  let presetPatch = null;
+  if (parsed.preset != null) {
+    if (presets[parsed.preset]) {
+      presetPatch = presets[parsed.preset];
+    } else if (validPresetName(parsed.preset)) {
+      try {
+        presetPatch = loadCustomPreset(parsed.preset);
+      } catch (e) {
+        console.error(`错误: ${e.message}`);
+        process.exit(1);
+      }
+    }
+    if (!presetPatch) {
+      const custom = listCustomPresets();
+      console.error(
+        `错误: 未知预设「${parsed.preset}」，内置：${Object.keys(presets).join(" / ")}`
+        + (custom.length ? `；自定义：${custom.join(" / ")}（位于 ~/.mdtt/presets/）` : "")
+      );
+      process.exit(1);
+    }
   }
-  const presetPatch = parsed.preset ? presets[parsed.preset] : {};
-  const opts = mergeOptions(defaultOptions, presetPatch, parsed.patch);
+  const opts = mergeOptions(defaultOptions, presetPatch ?? {}, parsed.patch);
 
   const outputPath = parsed.output
     ? path.resolve(parsed.output)

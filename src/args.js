@@ -186,7 +186,12 @@ const SPECS = [
   // ---- 输出控制 ----
   { name: "--output", alias: "-o", help: "输出文件路径", cli: "output" },
   { name: "--overwrite", flag: true, help: "覆盖已存在的输出文件", cli: "overwrite" },
-  { name: "--preset", help: "预设方案：legal / report / compact / cover / default", cli: "preset" },
+  { name: "--preset", help: "预设方案：sundy（圣典法律文书），或 ~/.mdtt/presets/ 中的自定义预设", cli: "preset" },
+  {
+    name: "--save-preset",
+    help: "将 docx 的版式提取为自定义预设并保存到 ~/.mdtt/presets/（仅 .docx，不执行转换）",
+    cli: "savePreset",
+  },
 ];
 
 function withTotal(format) {
@@ -220,7 +225,7 @@ export function parseHeadingSize(v, patch) {
 /** 解析 argv（已剔除位置参数）为 { patch, output, overwrite, preset, errors } */
 export function parseArgs(argv) {
   const patch = { page: {}, fonts: {}, sizes: {}, heading: {}, paragraph: {}, header: {}, footer: {}, pageNumber: {}, styles: {} };
-  const result = { patch, output: null, overwrite: false, preset: null, errors: [] };
+  const result = { patch, output: null, overwrite: false, preset: null, savePreset: null, errors: [] };
   const specByName = new Map();
   for (const s of SPECS) {
     specByName.set(s.name, s);
@@ -257,6 +262,7 @@ export function parseArgs(argv) {
         if (spec.cli === "output") result.output = value;
         else if (spec.cli === "overwrite") result.overwrite = true;
         else if (spec.cli === "preset") result.preset = value;
+        else if (spec.cli === "savePreset") result.savePreset = value;
       } else if (spec.flag) {
         spec.apply(patch);
       } else {
