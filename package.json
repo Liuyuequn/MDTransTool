@@ -22,7 +22,10 @@
   "dependencies": {
     "docx": "^9.7.1",
     "image-size": "^2.0.2",
+    "mammoth": "^1.12.2",
     "markdown-it": "^15.0.1",
+    "turndown": "^7.2.4",
+    "turndown-plugin-gfm": "^1.0.2",
     "xml-js": "^1.6.11"
   }
 }

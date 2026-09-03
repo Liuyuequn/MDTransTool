@@ -2,28 +2,34 @@
 
 ## 一、基础信息
 
-MDTT 是一款 Markdown 转 Word（docx）命令行工具。在终端中使用一条命令，即可将 Markdown 文档转换为排版良好的 docx 文件，支持通过参数与预设深度定制版式。
+MDTT 是一款 Markdown 与 Word（docx）互转命令行工具。支持双向转换：
+
+- **Markdown → docx**：`MDTT file.md [参数]`，可深度定制版式（页面、字体、页眉页脚等）
+- **docx → Markdown**：`MDTT file.docx to md [参数]`，保留标题、列表、表格、加粗/斜体、超链接、图片等结构
 
 ### 技术栈
 
-- [markdown-it](https://github.com/markdown-it/markdown-it) — Markdown 解析
-- [docx](https://github.com/dolanmiu/docx) — docx 文档生成
+- [markdown-it](https://github.com/markdown-it/markdown-it) — Markdown 解析（md → docx）
+- [docx](https://github.com/dolanmiu/docx) — docx 文档生成（md → docx）
 - [image-size](https://github.com/image-size/image-size) — 图片尺寸读取（用于按比例缩放）
+- [mammoth](https://github.com/mwilliamson/mammoth.js) — docx → HTML 提取（docx → md）
+- [turndown](https://github.com/mixmark-io/turndown) + [turndown-plugin-gfm](https://github.com/mixmark-io/turndown-plugin-gfm) — HTML → Markdown（docx → md）
 
 ### 项目结构
 
 ```
 MDTransTool/
 ├── src/
-│   ├── cli.js        # 命令行入口：位置参数、预设合并、输出控制
-│   ├── args.js       # 参数解析：全部 -- 参数的规格表与校验
-│   ├── presets.js    # 预设方案（legal / report / compact / cover / default）
-│   ├── converter.js  # 转换核心：markdown-it 解析 → docx 生成（含页眉页脚页码）
-│   └── options.js    # 默认配置、单位换算（cm→twip、pt、中文字号名）、深合并
+│   ├── cli.js          # 命令行入口：双向转换路由
+│   ├── converter.js    # md → docx 核心（markdown-it 解析 → docx 生成）
+│   ├── docx-to-md.js   # docx → md 核心（mammoth 提取 → turndown 转换）
+│   ├── args.js         # 参数解析（md → docx 参数规格表与校验）
+│   ├── presets.js      # 预设方案（legal / report / compact / cover / default）
+│   └── options.js      # 默认配置、单位换算、深合并
 └── test/
-    ├── sample.md     # 测试样例（覆盖全部支持的语法）
-    ├── run-test.mjs  # 自动化校验脚本（四组用例）
-    └── assets/       # 测试图片
+    ├── sample.md       # 测试样例（覆盖全部支持的语法）
+    ├── run-test.mjs    # 自动化校验脚本（五组用例）
+    └── assets/         # 测试图片
 ```
 
 ### 系统要求
@@ -46,15 +52,18 @@ npm link
 ### 基本用法
 
 ```bash
-MDTT <文件名>.md [参数]
+MDTT <文件名>.md [参数]                  Markdown 转 docx
+MDTT <文件名>.docx to md [参数]          docx 转 Markdown
 ```
 
 示例：
 
 ```bash
-MDTT notes.md                                        # 使用默认格式转换
-MDTT notes.md --preset legal                         # 使用法律文书预设
+MDTT notes.md                                        # 使用默认格式转为 docx
+MDTT notes.md --preset legal                         # 使用法律文书预设转为 docx
 MDTT notes.md --font 宋体 -p bottom --page-num-format 第X页
+MDTT report.docx to md                               # docx 转为 Markdown
+MDTT report.docx to md -o output.md                  # 指定输出路径
 ```
 
 转换完成后，docx 文件默认输出到源文件所在目录，文件名与源文件相同（扩展名变为 `.docx`）；可用 `-o` 指定其他路径。
@@ -216,4 +225,4 @@ MDTT doc.md --preset legal --font 黑体 --header "保密文件"
 npm test
 ```
 
-包含四组用例共 58 项校验：默认转换（19 项）、preset legal（21 项）、自定义参数组合（10 项）、错误处理（4 项），覆盖页眉页脚、页码字段、首行缩进、行距、字体字号、页面尺寸等 docx 内部结构。
+包含五组用例共 69 项校验：默认转换（19 项）、preset legal（21 项）、自定义参数组合（10 项）、错误处理（4 项）、docx → Markdown（11 项），覆盖双向转换的完整功能。

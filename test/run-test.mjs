@@ -148,10 +148,38 @@ function expectError(name, args) {
     check(name, e.status === 1 && e.stderr.length > 0);
   }
 }
-expectError("未知参数报错", [mdPath, "to", "docx", "--no-such-param"]);
-expectError("互斥参数报错（--header 与 --header-left）", [mdPath, "to", "docx", "--header", "A", "--header-left", "B"]);
-expectError("未知预设报错", [mdPath, "to", "docx", "--preset", "nope"]);
-expectError("页边距格式错误报错", [mdPath, "to", "docx", "-m", "abc"]);
+expectError("未知参数报错", [mdPath, "--no-such-param"]);
+expectError("互斥参数报错（--header 与 --header-left）", [mdPath, "--header", "A", "--header-left", "B"]);
+expectError("未知预设报错", [mdPath, "--preset", "nope"]);
+expectError("页边距格式错误报错", [mdPath, "-m", "abc"]);
+
+// ============ 用例 5：docx → Markdown ============
+console.log("\n—— 用例 5：docx → Markdown ——");
+{
+  // 先用 sample.md 生成一个 docx，再转回 md
+  const docxPath = path.join(__dirname, "docx2md-test.docx");
+  const mdOutPath = path.join(__dirname, "docx2md-test.md");
+  // 清理残留
+  for (const p of [docxPath, mdOutPath]) { if (fs.existsSync(p)) fs.unlinkSync(p); }
+  // md → docx
+  execFileSync(process.execPath, [cli, mdPath, "-o", docxPath], { stdio: "pipe" });
+  check("docx→md 前置：生成测试 docx", fs.existsSync(docxPath));
+  // docx → md
+  execFileSync(process.execPath, [cli, docxPath, "to", "md", "-o", mdOutPath], { stdio: "pipe" });
+  const mdOut = fs.readFileSync(mdOutPath, "utf-8");
+  check("docx→md 输出文件存在", fs.existsSync(mdOutPath));
+  check("docx→md 含一级标题", mdOut.includes("# "));
+  check("docx→md 含二级标题", mdOut.includes("## "));
+  check("docx→md 含加粗", mdOut.includes("**"));
+  check("docx→md 含斜体", mdOut.includes("*"));
+  check("docx→md 含超链接", mdOut.includes("](http"));
+  check("docx→md 含图片", mdOut.includes("!["));
+  check("docx→md 含列表项", mdOut.includes("- "));
+  check("docx→md 含表格", mdOut.includes("| ---"));
+  check("docx→md 无连续三个空行", !mdOut.includes("\n\n\n\n"));
+  // 清理
+  for (const p of [docxPath, mdOutPath]) { if (fs.existsSync(p)) fs.unlinkSync(p); }
+}
 
 console.log(failed ? `\n${failed} 项校验未通过` : "\n全部校验通过");
 process.exit(failed ? 1 : 0);
