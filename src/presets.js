@@ -66,7 +66,8 @@ export const presets = {
       heading: { eastAsia: "微软雅黑", ascii: "Calibri" },
     },
     sizes: { body: 11, heading: [22, 16, 14, 12, 11, 11] },
-    paragraph: { afterPt: 8, line: 1.15 },
+    // afterLines 显式置 null：默认值 0.5 行优先级高于 afterPt，需屏蔽以保持 pt 段距
+    paragraph: { afterPt: 8, afterLines: null, line: 1.15 },
     pageNumber: { pos: "bottom", align: "center", format: "X / Y" },
   },
 
@@ -80,7 +81,8 @@ export const presets = {
       body: { eastAsia: "等线", ascii: "Calibri" },
     },
     sizes: { body: 10.5, heading: [16, 14, 12, 11, 10.5, 10.5], code: 8.5 },
-    paragraph: { afterPt: 4, line: 1.15 },
+    // afterLines 显式置 null：默认值 0.5 行优先级高于 afterPt，需屏蔽以保持 pt 段距
+    paragraph: { afterPt: 4, afterLines: null, line: 1.15 },
   },
 
   // 封面页（初版）：内容垂直居中，无页眉页脚页码

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // MDTT 命令行入口
 // 格式：MDTT <文件>.md [参数]              → md 转 docx
-//       MDTT <文件>.docx to md [参数]      → docx 转 md
+//       MDTT <文件>.docx [参数]            → docx 转 md
 // 参数优先级：命令行单项参数 > 预设（--preset）> 默认值（options.js）
 
 import fs from "node:fs";
@@ -16,13 +16,13 @@ const USAGE = `MDTT - Markdown Trans Tool
 
 用法:
   MDTT <文件名>.md [参数]                  Markdown 转 docx
-  MDTT <文件名>.docx to md [参数]          docx 转 Markdown
+  MDTT <文件名>.docx [参数]                docx 转 Markdown
 
 示例:
   MDTT notes.md                            使用默认格式转为 docx
   MDTT notes.md --preset legal             使用法律文书预设转为 docx
-  MDTT report.docx to md                   docx 转为 Markdown
-  MDTT report.docx to md -o output.md      docx 转为 Markdown 并指定输出路径
+  MDTT report.docx                         docx 转为 Markdown
+  MDTT report.docx -o output.md            docx 转为 Markdown 并指定输出路径
 
 预设方案（仅 md → docx 时有效）:
   legal    法律文书（A4、宋体标题/仿宋正文、四号、首行缩进两字符、页眉页脚）
@@ -66,20 +66,13 @@ if (!fs.existsSync(inputPath)) {
 
 const ext = path.extname(inputPath).toLowerCase();
 
-// ============ 位置参数校验：按扩展名严格路由，多余/错误的位置参数一律报错 ============
-if (ext === ".md") {
-  if (positional.length !== 1) {
-    console.error(`错误: 无法识别的参数「${positional.slice(1).join(" ")}」，用法：MDTT <文件名>.md [选项参数]`);
-    process.exit(1);
-  }
-} else if (ext === ".docx") {
-  const ok = positional.length === 3 && positional[1] === "to" && positional[2].toLowerCase() === "md";
-  if (!ok) {
-    console.error("错误: docx 转 Markdown 的用法为 MDTT <文件名>.docx to md [选项参数]");
-    process.exit(1);
-  }
-} else {
-  console.error(`错误: 不支持的文件类型「${ext}」，仅支持 .md（转 docx）与 .docx（to md 转 Markdown）`);
+// ============ 位置参数校验：扩展名即转换方向（.md→docx、.docx→md），只允许一个位置参数 ============
+if (ext !== ".md" && ext !== ".docx") {
+  console.error(`错误: 不支持的文件类型「${ext}」，仅支持 .md（转 docx）与 .docx（转 Markdown）`);
+  process.exit(1);
+}
+if (positional.length !== 1) {
+  console.error(`错误: 无法识别的参数「${positional.slice(1).join(" ")}」，用法：MDTT <文件名>${ext} [选项参数]`);
   process.exit(1);
 }
 

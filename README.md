@@ -6,7 +6,7 @@ MDTT 是一款 Markdown 与 Word（docx）互转命令行工具。支持双向�
 
 - **Markdown → docx**：`MDTT file.md [参数]`，可深度定制版式（页面、字体、页眉页脚等）
 
-- **docx → Markdown**：`MDTT file.docx to md [参数]`，保留标题、列表、表格、加粗/斜体、超链接、图片等结构
+- **docx → Markdown**：`MDTT file.docx [参数]`，保留标题、列表、表格、加粗/斜体、超链接、图片等结构
 
 ### 技术栈
 
@@ -67,32 +67,37 @@ npm link
 
 ```bash
 MDTT <文件名>.md [参数]                  Markdown 转 docx
-MDTT <文件名>.docx to md [参数]          docx 转 Markdown
+MDTT <文件名>.docx [参数]                docx 转 Markdown
 ```
 
-示例：
+### 常用命令
+
+日常工作中高频使用的命令：
 
 ```bash
-MDTT notes.md                                        # 使用默认格式转为 docx
-MDTT notes.md --preset legal                         # 使用法律文书预设转为 docx
-MDTT notes.md --font 宋体 -p bottom --page-num-format 第X页
-MDTT report.docx to md                               # docx 转为 Markdown
-MDTT report.docx to md -o output.md                  # 指定输出路径
+MDTT <文件名>.md                              # 普通文档快速转换（默认格式：与 legal 排版相同，仅无页眉页脚页码）
+MDTT <文件名>.md -p bottom                    # 在页脚添加居中纯数字的页码
+MDTT <文件名>.md -p bottom --page-num-format 第X页/共Y页  # 页脚改为「第X页/共Y页」式页码
+MDTT <文件名>.md -o <输出路径>.docx           # 输出到指定路径（如直接存进案件文件夹）
+MDTT <文件名>.md --preset legal               # 出法律文书（最常用：圣典排版，页眉页脚页码齐备）
+MDTT <文件名>.md --preset legal --font 黑体   # 在法律文书预设基础上设置字体
+MDTT <文件名>.md --preset legal --overwrite   # 如有重名文件，直接覆盖旧文件
+MDTT <文件名>.md --preset legal --no-first-page-number  # 法律文书首页（封面）不显示页码
+MDTT <文件名>.md -p bottom --page-num-start 2 --no-first-page-number  # 封面不计页码，正文从第 2 页起（合同常用）
+MDTT <文件名>.md --header "保密文件"          # 页眉居中显示文字（密级标识、单位名称）
+MDTT <文件名>.md --header-left "委托代理合同" --header-right "2026-09"  # 页眉左右分布（左：文件标题，右：日期）
+MDTT <文件名>.md --orientation landscape      # 横向页面（宽表格、时间轴、证据清单）
+MDTT <文件名>.md -m 2.54,3.18,2.54,3.18       # 四边分别设置页边距（cm，顺序：上,右,下,左）
+MDTT <文件名>.md --indent 0                   # 取消首行缩进（英文文档、清单式材料）
+MDTT <文件名>.md --line-height 1.5            # 行距调整为 1.5 倍
+MDTT <文件名>.md --font-size 小四             # 单独调整正文字号（支持中文字号名）
+MDTT <文件名>.md --preset compact             # 紧凑排版（长篇备忘、内部参考资料）
+MDTT <文件名>.md --preset cover               # 封面页（内容垂直居中，单独出封面用）
+MDTT <文件名>.docx                            # 收到 Word 文档转回 Markdown 编辑
+MDTT <文件名>.docx --overwrite                # 重新转换时覆盖已存在的 md 文件
+MDTT <文件名>.docx -o <输出路径>.md           # docx 转 Markdown 并指定输出路径
+MDTT --help                                   # 忘记参数时查帮助
 ```
-
-转换完成后，docx 文件默认输出到源文件所在目录，文件名与源文件相同（扩展名变为 `.docx`）；可用 `-o` 指定其他路径。
-
-**docx → Markdown 的图片处理**：文档中的图片会提取到输出目录下的 `MDPictures/` 文件夹，以内容 hash 命名（如 `img-a1b2c3d4e5.png`），正文中以相对路径引用。相同图片只保存一份，重复转换文件名稳定；该文件夹可手动清理，下次转换会按需重建。
-
-**docx → Markdown 的合并单元格**：GFM 管道表格语法无法表达 colspan/rowspan，因此含合并单元格的表格会以 HTML `<table>` 形式嵌入输出（Markdown 原生支持内嵌 HTML），完整保留合并语义，GitHub / VS Code / Typora 等主流渲染器均可正常显示；表格前附注释说明。无合并的表格仍转换为标准 GFM 管道表格。
-
-查看帮助（含全部参数说明）：
-
-```bash
-MDTT --help
-```
-
-错误场景（文件不存在、位置参数格式不正确、参数取值非法、互斥参数冲突、输出文件已存在且未加 `--overwrite`）均输出中文提示并以非零状态码退出。
 
 ### 支持的 Markdown 语法
 
@@ -239,20 +244,3 @@ MDTT doc.md --preset legal --font 黑体 --header "保密文件"
 | 页眉   | 三行左对齐：①圣典律师事务所 ②圣典官网：<https://www.sundylawyer.com/（超链接）③总所地址：南京市建邺区奥体大街68号新城科技园4A栋6楼、7楼；右端放置律所> logo；页眉底端红→橙→金渐变色带（以红为主）；仿宋/Times New Roman 小五 |
 | 页脚   | 居中页码「第X页/共Y页」，仿宋/Times New Roman 四号                                                                                                            |
 
-## 六、运行测试
-
-```bash
-npm test
-```
-
-分两层共 127 项校验：
-
-- **单元测试**（`test/unit-test.mjs`，39 项）：单位换算、中文字号解析、深合并、参数解析（别名、互斥、校验规则）
-
-- **端到端校验**（`test/run-test.mjs`，88 项）：默认转换（19）、preset legal（30）、自定义参数组合（10）、错误处理（8）、docx → Markdown（含 MDPictures 图片提取，14）、合并单元格 HTML 回退（7）
-
-期望值由预设声明与换算函数推导（换算函数由单元测试护航），避免测试与实现细节耦合。
-
-### 持续集成
-
-GitHub Actions（[ci.yml](.github/workflows/ci.yml)）在每次 push 与 pull request 时自动于 Ubuntu / Windows × Node 18 / 20 / 22 六个环境组合上运行全部测试。

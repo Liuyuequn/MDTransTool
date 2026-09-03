@@ -7,7 +7,7 @@ import { createRequire } from "node:module";
 
 // 期望值统一由“配置声明 + 换算函数”推导，避免魔法数与实现耦合；
 // 换算函数本身由 unit-test.mjs 覆盖
-import { cmToTwip, ptToHalfPoint, PAGE_SIZES, CHINESE_FONT_SIZES } from "../src/options.js";
+import { cmToTwip, ptToHalfPoint, PAGE_SIZES, CHINESE_FONT_SIZES, defaultOptions } from "../src/options.js";
 import { presets } from "../src/presets.js";
 
 const require = createRequire(import.meta.url);
@@ -55,6 +55,12 @@ function docDefaults(stylesXml) {
 // ============ 用例 1：默认转换 ============
 console.log("—— 用例 1：默认转换 ——");
 const d = await convert("sample-default.docx");
+// 约定：默认输出 = legal 排版 − 页眉页脚页码（期望值从 defaultOptions 推导）
+const DF = defaultOptions;
+const dfLineTwip = String(Math.round(DF.paragraph.line * 240));
+const dfIndentChars = String(Math.round(DF.paragraph.firstLineChars * 100));
+const dfAfterTwip = String(Math.round(DF.paragraph.afterLines * DF.sizes.body * DF.paragraph.line * 20));
+const dH1 = styleBlock(d.styles, "Heading1");
 [
   ["标题样式 Heading1", d.document.includes('<w:pStyle w:val="Heading1"/>')],
   ["六级标题 Heading6", d.document.includes('<w:pStyle w:val="Heading6"/>')],
@@ -71,6 +77,10 @@ const d = await convert("sample-default.docx");
   ["有序列表编号", d.numbering.includes("%1.")],
   ["无序列表编号", d.numbering.includes("\u2022")],
   ["A4 页面尺寸", d.document.includes('w:w="11906"')],
+  [`默认首行缩进两字符（firstLineChars=${dfIndentChars}）`, d.document.includes(`w:firstLineChars="${dfIndentChars}"`)],
+  [`默认行距 ${DF.paragraph.line}（w:line=${dfLineTwip}）`, docDefaults(d.styles).includes(`w:line="${dfLineTwip}"`)],
+  [`默认段后 ${DF.paragraph.afterLines} 行（w:after=${dfAfterTwip}）`, docDefaults(d.styles).includes(`w:after="${dfAfterTwip}"`)],
+  ["默认 H1 居中", dH1.includes('<w:jc w:val="center"/>')],
   ["默认无页眉", d.header === null],
   ["默认无页脚", d.footer === null],
   ["默认无页码字段", !d.document.includes("PAGE")],
@@ -170,8 +180,8 @@ expectError("互斥参数报错（--header 与 --header-left）", [mdPath, "--he
 expectError("未知预设报错", [mdPath, "--preset", "nope"]);
 expectError("页边距格式错误报错", [mdPath, "-m", "abc"]);
 expectError("旧语法 md to docx 报错", [mdPath, "to", "docx"]);
+expectError("旧语法 docx to md 报错", [path.join(__dirname, "sample-default.docx"), "to", "md"]);
 expectError("多余位置参数报错", [mdPath, "垃圾参数"]);
-expectError("docx 缺少 to md 报错", [path.join(__dirname, "sample-default.docx")]);
 {
   // 不支持的扩展名：先造一个存在的 .txt 文件，确保走到扩展名校验分支而非“找不到文件”
   const txtPath = path.join(__dirname, "unsupported.txt");
@@ -194,7 +204,7 @@ console.log("\n—— 用例 5：docx → Markdown ——");
   execFileSync(process.execPath, [cli, mdPath, "-o", docxPath], { stdio: "pipe" });
   check("docx→md 前置：生成测试 docx", fs.existsSync(docxPath));
   // docx → md
-  execFileSync(process.execPath, [cli, docxPath, "to", "md", "-o", mdOutPath], { stdio: "pipe" });
+  execFileSync(process.execPath, [cli, docxPath, "-o", mdOutPath], { stdio: "pipe" });
   const mdOut = fs.readFileSync(mdOutPath, "utf-8");
   const pics = fs.existsSync(picDir) ? fs.readdirSync(picDir) : [];
   check("docx→md 输出文件存在", fs.existsSync(mdOutPath));
@@ -254,7 +264,7 @@ console.log("\n—— 用例 6：docx → md 合并单元格（HTML 回退）—
     }],
   });
   fs.writeFileSync(docxPath, await Packer.toBuffer(doc));
-  execFileSync(process.execPath, [cli, docxPath, "to", "md", "-o", mdOutPath], { stdio: "pipe" });
+  execFileSync(process.execPath, [cli, docxPath, "-o", mdOutPath], { stdio: "pipe" });
   const out = fs.readFileSync(mdOutPath, "utf-8");
   check("合并表格：输出文件存在", fs.existsSync(mdOutPath));
   check("合并表格：保留 colspan 属性", out.includes('colspan="2"'));

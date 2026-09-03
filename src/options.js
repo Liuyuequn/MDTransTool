@@ -60,15 +60,15 @@ export const defaultOptions = {
   },
   heading: {
     bold: [true, true, true, false, false, false],
-    align: [null, null, null, null, null, null], // null = 左对齐
-    spacing: { beforePt: 16, afterPt: 8 },       // lines 字段优先于 pt
+    align: ["center", null, null, null, null, null], // null = 左对齐；H1 居中
+    spacing: { beforeLines: 0.5, afterLines: 0 },    // 段前 0.5 行，段后 0（lines 优先于 pt）
   },
   paragraph: {
     align: null,           // null = 默认（左）
-    firstLineChars: 0,     // 首行缩进字符数（仅普通正文段落）
-    afterPt: 8,            // 段后间距
-    afterLines: null,      // "行"单位段后距（优先于 afterPt）
-    line: null,            // 行距倍数，如 1.28
+    firstLineChars: 2,     // 首行缩进字符数（仅普通正文段落）
+    afterPt: 8,            // 段后间距（afterLines 优先于本值）
+    afterLines: 0.5,       // "行"单位段后距
+    line: 1.28,            // 行距倍数
   },
   header: {
     text: null, left: null, right: null,

@@ -12,7 +12,7 @@
 
 ```bash
 MDTT <文件名>.md [参数]                  Markdown 转 docx
-MDTT <文件名>.docx to md [参数]          docx 转 Markdown
+MDTT <文件名>.docx [参数]                docx 转 Markdown
 ```
 
 输出文件默认与源文件同目录、同名（仅扩展名变化）。
@@ -24,7 +24,7 @@ MDTT <文件名>.docx to md [参数]          docx 转 Markdown
 ### Markdown → docx
 
 ```bash
-MDTT notes.md                              # 默认格式（仿宋四号、A4、左右3.18cm页边距）
+MDTT notes.md                              # 默认格式（与 legal 排版相同：仿宋四号、首行缩进两字符、行距1.28、H1居中；仅无页眉页脚页码）
 MDTT notes.md --preset legal               # 法律文书预设（圣典律师事务所专用排版）
 MDTT notes.md -o output/result.docx        # 指定输出路径
 MDTT notes.md --overwrite                  # 覆盖已有文件
@@ -34,9 +34,9 @@ MDTT notes.md --preset legal --overwrite   # 使用法律文书预设并覆盖
 ### docx → Markdown
 
 ```bash
-MDTT report.docx to md                     # 转为同名 .md 文件
-MDTT report.docx to md -o output.md        # 指定输出路径
-MDTT report.docx to md --overwrite         # 覆盖已有文件
+MDTT report.docx                           # 转为同名 .md 文件
+MDTT report.docx -o output.md              # 指定输出路径
+MDTT report.docx --overwrite               # 覆盖已有文件
 ```
 
 ## 预设方案（仅 md → docx 时有效）
