@@ -193,7 +193,8 @@ function withTotal(format) {
   return format.includes("Y") ? format : `${format}/共Y页`;
 }
 
-function parseMargin(v, patch) {
+/** 页边距取值解析：单值四边统一 / 四值（上,右,下,左），非法值抛错（导出供单元测试） */
+export function parseMargin(v, patch) {
   const parts = v.split(",").map((x) => Number(x.trim()));
   if (parts.some((n) => Number.isNaN(n) || n < 0)) throw new Error(`页边距格式错误：「${v}」应为逗号分隔的非负数字（cm）`);
   let [top, right, bottom, left] = parts;
@@ -202,7 +203,8 @@ function parseMargin(v, patch) {
   patch.page = { ...patch.page, margin: { top, right, bottom, left } };
 }
 
-function parseHeadingSize(v, patch) {
+/** 标题字号取值解析：auto / 单值 / 六级逗号分隔（导出供单元测试） */
+export function parseHeadingSize(v, patch) {
   if (v === "auto") {
     patch.heading = patch.heading || {};
     return;

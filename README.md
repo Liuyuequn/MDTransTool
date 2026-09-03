@@ -5,31 +5,45 @@
 MDTT 是一款 Markdown 与 Word（docx）互转命令行工具。支持双向转换：
 
 - **Markdown → docx**：`MDTT file.md [参数]`，可深度定制版式（页面、字体、页眉页脚等）
+
 - **docx → Markdown**：`MDTT file.docx to md [参数]`，保留标题、列表、表格、加粗/斜体、超链接、图片等结构
 
 ### 技术栈
 
 - [markdown-it](https://github.com/markdown-it/markdown-it) — Markdown 解析（md → docx）
+
 - [docx](https://github.com/dolanmiu/docx) — docx 文档生成（md → docx）
+
 - [image-size](https://github.com/image-size/image-size) — 图片尺寸读取（用于按比例缩放）
+
 - [mammoth](https://github.com/mwilliamson/mammoth.js) — docx → HTML 提取（docx → md）
+
+- [node-html-parser](https://github.com/taoqf/node-html-parser) — HTML DOM 预处理（表格结构重建与合并单元格检测）
+
 - [turndown](https://github.com/mixmark-io/turndown) + [turndown-plugin-gfm](https://github.com/mixmark-io/turndown-plugin-gfm) — HTML → Markdown（docx → md）
 
 ### 项目结构
 
 ```
 MDTransTool/
+├── .github/workflows/ci.yml  # CI：push/PR 时在 Ubuntu/Windows × Node 18/20/22 上自动测试
 ├── src/
-│   ├── cli.js          # 命令行入口：双向转换路由
-│   ├── converter.js    # md → docx 核心（markdown-it 解析 → docx 生成）
-│   ├── docx-to-md.js   # docx → md 核心（mammoth 提取 → turndown 转换）
-│   ├── args.js         # 参数解析（md → docx 参数规格表与校验）
-│   ├── presets.js      # 预设方案（legal / report / compact / cover / default）
-│   └── options.js      # 默认配置、单位换算、深合并
+│   ├── cli.js                # 命令行入口：双向转换路由、位置参数校验
+│   ├── converter.js          # md → docx 编排层：组装 Document
+│   ├── blocks.js             # md → docx 块级解析（标题/列表/引用/代码块/表格）
+│   ├── inline.js             # md → docx 行内解析（强调/链接/图片）与图片加载
+│   ├── header-footer.js      # md → docx 页眉页脚（文字/图片布局/页码/渐变色带）
+│   ├── styles.js             # md → docx 样式表、字体对象、间距换算、编号
+│   ├── page.js               # md → docx 页面属性（尺寸/边距/垂直对齐/页码格式）
+│   ├── docx-to-md.js         # docx → md 核心（mammoth 提取 → turndown 转换）
+│   ├── args.js               # 参数解析：-- 参数规格表与校验
+│   ├── presets.js            # 预设方案（legal / report / compact / cover / default）
+│   └── options.js            # 默认配置、单位换算、深合并
 └── test/
-    ├── sample.md       # 测试样例（覆盖全部支持的语法）
-    ├── run-test.mjs    # 自动化校验脚本（五组用例）
-    └── assets/         # 测试图片
+    ├── sample.md             # 测试样例（覆盖全部支持的语法）
+    ├── unit-test.mjs         # 单元测试（纯函数层：换算/字号/合并/参数解析）
+    ├── run-test.mjs          # 端到端校验（五组用例，检查 docx 内部结构）
+    └── assets/               # 测试图片
 ```
 
 ### 系统要求
@@ -68,13 +82,17 @@ MDTT report.docx to md -o output.md                  # 指定输出路径
 
 转换完成后，docx 文件默认输出到源文件所在目录，文件名与源文件相同（扩展名变为 `.docx`）；可用 `-o` 指定其他路径。
 
+**docx → Markdown 的图片处理**：文档中的图片会提取到输出目录下的 `MDPictures/` 文件夹，以内容 hash 命名（如 `img-a1b2c3d4e5.png`），正文中以相对路径引用。相同图片只保存一份，重复转换文件名稳定；该文件夹可手动清理，下次转换会按需重建。
+
+**docx → Markdown 的合并单元格**：GFM 管道表格语法无法表达 colspan/rowspan，因此含合并单元格的表格会以 HTML `<table>` 形式嵌入输出（Markdown 原生支持内嵌 HTML），完整保留合并语义，GitHub / VS Code / Typora 等主流渲染器均可正常显示；表格前附注释说明。无合并的表格仍转换为标准 GFM 管道表格。
+
 查看帮助（含全部参数说明）：
 
 ```bash
 MDTT --help
 ```
 
-错误场景（文件不存在、参数取值非法、互斥参数冲突、输出文件已存在且未加 `--overwrite`）均输出中文提示并以非零状态码退出。
+错误场景（文件不存在、位置参数格式不正确、参数取值非法、互斥参数冲突、输出文件已存在且未加 `--overwrite`）均输出中文提示并以非零状态码退出。
 
 ### 支持的 Markdown 语法
 
@@ -102,7 +120,9 @@ MDTT --help
 #### 其他特性
 
 - **中英文混排**：中西文字体分别设置（如仿宋 + Times New Roman）
+
 - **图片容错**：图片缺失时以 `[图片缺失: ...]` 文本占位，不中断转换
+
 - **首页差异化**：`--first-*` / `--no-first-*` 系列参数实现首页页眉页脚独立设置
 
 ## 四、参数列表
@@ -225,4 +245,14 @@ MDTT doc.md --preset legal --font 黑体 --header "保密文件"
 npm test
 ```
 
-包含五组用例共 69 项校验：默认转换（19 项）、preset legal（21 项）、自定义参数组合（10 项）、错误处理（4 项）、docx → Markdown（11 项），覆盖双向转换的完整功能。
+分两层共 127 项校验：
+
+- **单元测试**（`test/unit-test.mjs`，39 项）：单位换算、中文字号解析、深合并、参数解析（别名、互斥、校验规则）
+
+- **端到端校验**（`test/run-test.mjs`，88 项）：默认转换（19）、preset legal（30）、自定义参数组合（10）、错误处理（8）、docx → Markdown（含 MDPictures 图片提取，14）、合并单元格 HTML 回退（7）
+
+期望值由预设声明与换算函数推导（换算函数由单元测试护航），避免测试与实现细节耦合。
+
+### 持续集成
+
+GitHub Actions（[ci.yml](.github/workflows/ci.yml)）在每次 push 与 pull request 时自动于 Ubuntu / Windows × Node 18 / 20 / 22 六个环境组合上运行全部测试。

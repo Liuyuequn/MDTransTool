@@ -5,6 +5,11 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 
+// 期望值统一由“配置声明 + 换算函数”推导，避免魔法数与实现耦合；
+// 换算函数本身由 unit-test.mjs 覆盖
+import { cmToTwip, ptToHalfPoint, PAGE_SIZES, CHINESE_FONT_SIZES } from "../src/options.js";
+import { presets } from "../src/presets.js";
+
 const require = createRequire(import.meta.url);
 const JSZip = require("jszip");
 
@@ -22,7 +27,7 @@ function check(name, cond) {
 async function convert(outName, extraArgs = []) {
   const outPath = path.join(__dirname, outName);
   if (fs.existsSync(outPath)) fs.unlinkSync(outPath);
-  execFileSync(process.execPath, [cli, mdPath, "to", "docx", "-o", outPath, ...extraArgs], { stdio: "pipe" });
+  execFileSync(process.execPath, [cli, mdPath, "-o", outPath, ...extraArgs], { stdio: "pipe" });
   const zip = await JSZip.loadAsync(fs.readFileSync(outPath));
   const headerFiles = Object.keys(zip.files).filter((f) => /^word\/header\d+\.xml$/.test(f));
   const footerFiles = Object.keys(zip.files).filter((f) => /^word\/footer\d+\.xml$/.test(f));
@@ -78,37 +83,49 @@ const l = await convert("sample-legal.docx", ["--preset", "legal"]);
 const h1 = styleBlock(l.styles, "Heading1");
 const h4 = styleBlock(l.styles, "Heading4");
 const lDefaults = docDefaults(l.styles);
+// 期望值全部从 legal 预设声明推导
+const LG = presets.legal;
+const lgA4w = String(PAGE_SIZES[LG.page.size].width);
+const lgMarginTop = String(cmToTwip(LG.page.margin.top));
+const lgMarginLeft = String(cmToTwip(LG.page.margin.left));
+const lgH1Half = String(ptToHalfPoint(LG.sizes.heading[0]));
+const lgH4Half = String(ptToHalfPoint(LG.sizes.heading[3]));
+const lgBodyHalf = String(ptToHalfPoint(LG.sizes.body));
+const lgHeaderHalf = String(ptToHalfPoint(LG.sizes.header));
+const lgFooterHalf = String(ptToHalfPoint(LG.sizes.footer));
+const lgLineTwip = String(Math.round(LG.paragraph.line * 240));
+const lgIndentChars = String(Math.round(LG.paragraph.firstLineChars * 100));
 [
   // 纸张
-  ["A4 尺寸", l.document.includes('w:w="11906"')],
-  ["上下页边距 2.54cm（1440 twip）", l.document.includes('w:top="1440"') && l.document.includes('w:bottom="1440"')],
-  ["左右页边距 3.18cm（1803 twip）", l.document.includes('w:left="1803"') && l.document.includes('w:right="1803"')],
+  ["A4 尺寸", l.document.includes(`w:w="${lgA4w}"`)],
+  ["上下页边距按预设（twip）", l.document.includes(`w:top="${lgMarginTop}"`) && l.document.includes(`w:bottom="${lgMarginTop}"`)],
+  ["左右页边距按预设（twip）", l.document.includes(`w:left="${lgMarginLeft}"`) && l.document.includes(`w:right="${lgMarginLeft}"`)],
   // 标题
   ["标题宋体", h1.includes('w:eastAsia="宋体"')],
   ["标题西文 Times New Roman", h1.includes('w:ascii="Times New Roman"')],
-  ["H1 二号（44 半磅）", h1.includes('w:val="44"')],
+  ["H1 字号按预设（半磅）", h1.includes(`w:val="${lgH1Half}"`)],
   ["H1 居中", h1.includes('<w:jc w:val="center"/>')],
   ["H1 加粗", h1.includes("<w:b/>")],
-  ["H4 四号且不加粗", h4.includes('w:val="28"') && !h4.includes("<w:b/>")],
+  ["H4 字号按预设且不加粗", h4.includes(`w:val="${lgH4Half}"`) && !h4.includes("<w:b/>")],
   // 正文
   ["正文仿宋", lDefaults.includes('w:eastAsia="仿宋"')],
   ["正文西文 Times New Roman", lDefaults.includes('w:ascii="Times New Roman"')],
-  ["正文四号（28 半磅）", lDefaults.includes('<w:sz w:val="28"/>')],
-  ["首行缩进两字符（firstLineChars=200）", l.document.includes('w:firstLineChars="200"')],
-  ["行距 1.28（w:line=307 auto）", lDefaults.includes('w:line="307"') && lDefaults.includes('w:lineRule="auto"')],
+  ["正文字号按预设（半磅）", lDefaults.includes(`<w:sz w:val="${lgBodyHalf}"/>`)],
+  [`首行缩进两字符（firstLineChars=${lgIndentChars}）`, l.document.includes(`w:firstLineChars="${lgIndentChars}"`)],
+  [`行距按预设（w:line=${lgLineTwip} auto）`, lDefaults.includes(`w:line="${lgLineTwip}"`) && lDefaults.includes('w:lineRule="auto"')],
   // 页眉页脚
   ["页眉三行文字（所名/官网/地址）", l.header && l.header.includes("圣典律师事务所") && l.header.includes("圣典官网") && l.header.includes("总所地址") && l.header.includes("新城科技园4A栋6楼、7楼")],
   ["页眉左对齐", l.header && l.header.includes('<w:jc w:val="left"/>')],
   ["页眉 logo 图片", l.header && l.header.includes("<w:drawing>")],
   ["页眉 URL 为超链接", l.header && l.header.includes("<w:hyperlink")],
-  ["页眉小五仿宋（18 半磅）", l.header && l.header.includes('w:val="18"') && l.header.includes('w:eastAsia="仿宋"')],
+  ["页眉字号字体按预设", l.header && l.header.includes(`w:val="${lgHeaderHalf}"`) && l.header.includes('w:eastAsia="仿宋"')],
   ["页眉渐变色带为原生渐变（a:gradFill）", l.header && l.header.includes("<a:gradFill")],
   ["渐变色带起点亮正红 E60012", l.header && l.header.includes('val="E60012"')],
   ["渐变色带终点金色 FFD700", l.header && l.header.includes('val="FFD700"')],
   ["渐变色带含 4 个颜色停靠点", l.header && (l.header.match(/<a:gs /g) || []).length >= 4],
   ["渐变色带橙金占比（45% 起橙红、70% 起纯橙）", l.header && l.header.includes('pos="45000"') && l.header.includes('pos="70000"')],
   ["页脚“第X页/共Y页”模板", l.footer && l.footer.includes("第") && l.footer.includes("页/共")],
-  ["页脚页码五号（21 半磅）", l.footer && l.footer.includes('w:val="21"')],
+  ["页脚页码字号按预设（半磅）", l.footer && l.footer.includes(`w:val="${lgFooterHalf}"`)],
   ["页脚页码仿宋", l.footer && l.footer.includes('w:eastAsia="仿宋"')],
   ["页脚含页码字段", l.footer && l.footer.includes("PAGE")],
   ["页脚含总页数字段", l.footer && l.footer.includes("NUMPAGES")],
@@ -127,12 +144,12 @@ const c = await convert("sample-custom.docx", [
 ]);
 [
   ["页面垂直居中（v-align center）", c.document.includes('w:vAlign w:val="center"') || c.document.includes('w:val="center"')],
-  ["自定义页边距（上 2cm=1134）", c.document.includes('w:top="1134"')],
+  [`自定义页边距（上 2cm=${cmToTwip(2)} twip）`, c.document.includes(`w:top="${cmToTwip(2)}"`)],
   ["左分布页眉（tab 右对齐）", c.header && c.header.includes("MDTT 测试") && c.header.includes("2026-09-03")],
   ["页码格式“第X页”", c.footer && c.footer.includes("第") && c.footer.includes("PAGE")],
   ["起始页码 3", c.document.includes('w:start="3"')],
   ["正文黑体", c.styles.includes('w:eastAsia="黑体"')],
-  ["正文小四（24 半磅）", c.styles.includes('w:val="24"')],
+  [`正文小四（${ptToHalfPoint(CHINESE_FONT_SIZES["小四"])} 半磅）`, c.styles.includes(`w:val="${ptToHalfPoint(CHINESE_FONT_SIZES["小四"])}"`)],
   ["首行缩进两字符", c.document.includes('w:firstLineChars="200"')],
   ["正文两端对齐", c.document.includes('w:val="both"')],
   ["--no-italic 生效（无斜体）", !c.document.includes("<w:i/>")],
@@ -152,6 +169,16 @@ expectError("未知参数报错", [mdPath, "--no-such-param"]);
 expectError("互斥参数报错（--header 与 --header-left）", [mdPath, "--header", "A", "--header-left", "B"]);
 expectError("未知预设报错", [mdPath, "--preset", "nope"]);
 expectError("页边距格式错误报错", [mdPath, "-m", "abc"]);
+expectError("旧语法 md to docx 报错", [mdPath, "to", "docx"]);
+expectError("多余位置参数报错", [mdPath, "垃圾参数"]);
+expectError("docx 缺少 to md 报错", [path.join(__dirname, "sample-default.docx")]);
+{
+  // 不支持的扩展名：先造一个存在的 .txt 文件，确保走到扩展名校验分支而非“找不到文件”
+  const txtPath = path.join(__dirname, "unsupported.txt");
+  fs.writeFileSync(txtPath, "test", "utf-8");
+  expectError("不支持的扩展名报错", [txtPath]);
+  fs.unlinkSync(txtPath);
+}
 
 // ============ 用例 5：docx → Markdown ============
 console.log("\n—— 用例 5：docx → Markdown ——");
@@ -159,25 +186,83 @@ console.log("\n—— 用例 5：docx → Markdown ——");
   // 先用 sample.md 生成一个 docx，再转回 md
   const docxPath = path.join(__dirname, "docx2md-test.docx");
   const mdOutPath = path.join(__dirname, "docx2md-test.md");
+  const picDir = path.join(__dirname, "MDPictures");
   // 清理残留
   for (const p of [docxPath, mdOutPath]) { if (fs.existsSync(p)) fs.unlinkSync(p); }
+  if (fs.existsSync(picDir)) fs.rmSync(picDir, { recursive: true });
   // md → docx
   execFileSync(process.execPath, [cli, mdPath, "-o", docxPath], { stdio: "pipe" });
   check("docx→md 前置：生成测试 docx", fs.existsSync(docxPath));
   // docx → md
   execFileSync(process.execPath, [cli, docxPath, "to", "md", "-o", mdOutPath], { stdio: "pipe" });
   const mdOut = fs.readFileSync(mdOutPath, "utf-8");
+  const pics = fs.existsSync(picDir) ? fs.readdirSync(picDir) : [];
   check("docx→md 输出文件存在", fs.existsSync(mdOutPath));
   check("docx→md 含一级标题", mdOut.includes("# "));
   check("docx→md 含二级标题", mdOut.includes("## "));
   check("docx→md 含加粗", mdOut.includes("**"));
   check("docx→md 含斜体", mdOut.includes("*"));
   check("docx→md 含超链接", mdOut.includes("](http"));
-  check("docx→md 含图片", mdOut.includes("!["));
+  check("docx→md 含图片引用", mdOut.includes("!["));
+  check("docx→md 图片提取到 MDPictures 文件夹", pics.some((f) => f.startsWith("img-") && /\.(png|jpg|gif|bmp)$/.test(f)));
+  check("docx→md 图片为相对路径引用", mdOut.includes("](MDPictures/img-"));
+  check("docx→md 无 data URI 内嵌图片", !mdOut.includes("data:image"));
   check("docx→md 含列表项", mdOut.includes("- "));
   check("docx→md 含表格", mdOut.includes("| ---"));
   check("docx→md 无连续三个空行", !mdOut.includes("\n\n\n\n"));
   // 清理
+  for (const p of [docxPath, mdOutPath]) { if (fs.existsSync(p)) fs.unlinkSync(p); }
+  if (fs.existsSync(picDir)) fs.rmSync(picDir, { recursive: true });
+}
+
+// ============ 用例 6：docx → md 合并单元格（HTML 回退） ============
+console.log("\n—— 用例 6：docx → md 合并单元格（HTML 回退）——");
+{
+  // 用 docx 库生成含横跨/纵跨合并单元格的测试文档
+  const { Document, Packer, Paragraph, Table, TableRow, TableCell, WidthType } = await import("docx");
+  const docxPath = path.join(__dirname, "merged-cells.docx");
+  const mdOutPath = path.join(__dirname, "merged-cells.md");
+  for (const p of [docxPath, mdOutPath]) { if (fs.existsSync(p)) fs.unlinkSync(p); }
+  const doc = new Document({
+    sections: [{
+      children: [
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: [
+            new TableRow({
+              children: [
+                new TableCell({ children: [new Paragraph("横跨两列")], columnSpan: 2 }),
+                new TableCell({ children: [new Paragraph("C1")] }),
+              ],
+            }),
+            new TableRow({
+              children: [
+                new TableCell({ children: [new Paragraph("纵跨两行")], rowSpan: 2 }),
+                new TableCell({ children: [new Paragraph("B2")] }),
+                new TableCell({ children: [new Paragraph("C2")] }),
+              ],
+            }),
+            new TableRow({
+              children: [
+                new TableCell({ children: [new Paragraph("B3")] }),
+                new TableCell({ children: [new Paragraph("C3")] }),
+              ],
+            }),
+          ],
+        }),
+      ],
+    }],
+  });
+  fs.writeFileSync(docxPath, await Packer.toBuffer(doc));
+  execFileSync(process.execPath, [cli, docxPath, "to", "md", "-o", mdOutPath], { stdio: "pipe" });
+  const out = fs.readFileSync(mdOutPath, "utf-8");
+  check("合并表格：输出文件存在", fs.existsSync(mdOutPath));
+  check("合并表格：保留 colspan 属性", out.includes('colspan="2"'));
+  check("合并表格：保留 rowspan 属性", out.includes('rowspan="2"'));
+  check("合并表格：HTML 回退含 <table>", out.includes("<table"));
+  check("合并表格：含说明注释", out.includes("合并单元格"));
+  check("合并表格：内容完整（横跨两列/纵跨两行/B3）", out.includes("横跨两列") && out.includes("纵跨两行") && out.includes("B3"));
+  check("合并表格：未误生成管道表格", !out.includes("| ---"));
   for (const p of [docxPath, mdOutPath]) { if (fs.existsSync(p)) fs.unlinkSync(p); }
 }
 

@@ -64,21 +64,34 @@ if (!fs.existsSync(inputPath)) {
   process.exit(1);
 }
 
-// 判断转换模式：docx → md  vs  md → docx
-const isDocxToMd = positional.length >= 3
-  && path.extname(inputPath).toLowerCase() === ".docx"
-  && positional[1] === "to"
-  && positional[2].toLowerCase() === "md";
+const ext = path.extname(inputPath).toLowerCase();
 
-if (isDocxToMd) {
-  // ============ docx → Markdown 模式 ============
-  // 解析参数（仅用 --output 和 --overwrite）
-  const parsed = parseArgs(rest);
-  if (parsed.errors.length) {
-    for (const err of parsed.errors) console.error(`错误: ${err}`);
+// ============ 位置参数校验：按扩展名严格路由，多余/错误的位置参数一律报错 ============
+if (ext === ".md") {
+  if (positional.length !== 1) {
+    console.error(`错误: 无法识别的参数「${positional.slice(1).join(" ")}」，用法：MDTT <文件名>.md [选项参数]`);
     process.exit(1);
   }
+} else if (ext === ".docx") {
+  const ok = positional.length === 3 && positional[1] === "to" && positional[2].toLowerCase() === "md";
+  if (!ok) {
+    console.error("错误: docx 转 Markdown 的用法为 MDTT <文件名>.docx to md [选项参数]");
+    process.exit(1);
+  }
+} else {
+  console.error(`错误: 不支持的文件类型「${ext}」，仅支持 .md（转 docx）与 .docx（to md 转 Markdown）`);
+  process.exit(1);
+}
 
+// 解析参数（位置参数已单独取出，参数项从 rest 中解析）
+const parsed = parseArgs(rest);
+if (parsed.errors.length) {
+  for (const err of parsed.errors) console.error(`错误: ${err}`);
+  process.exit(1);
+}
+
+if (ext === ".docx") {
+  // ============ docx → Markdown 模式 ============
   const outputPath = parsed.output
     ? path.resolve(parsed.output)
     : inputPath.replace(/\.docx$/i, ".md");
@@ -97,18 +110,6 @@ if (isDocxToMd) {
   }
 } else {
   // ============ Markdown → docx 模式 ============
-  const ext = path.extname(inputPath).toLowerCase();
-  if (ext !== ".md") {
-    console.error("错误: 输入文件必须为 .md（转 docx）或 .docx（转 Markdown）");
-    process.exit(1);
-  }
-
-  const parsed = parseArgs(rest);
-  if (parsed.errors.length) {
-    for (const err of parsed.errors) console.error(`错误: ${err}`);
-    process.exit(1);
-  }
-
   // 预设校验与合并：单项参数 > 预设 > 默认值
   if (parsed.preset != null && !presets[parsed.preset]) {
     console.error(`错误: 未知预设「${parsed.preset}」，可选：${Object.keys(presets).join(" / ")}`);
