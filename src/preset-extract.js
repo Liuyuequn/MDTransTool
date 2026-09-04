@@ -181,22 +181,47 @@ export async function extractPresetOptions(docxPath) {
   const bodyFont = fontFromRPr(nRPr) ?? fontFromRPr(ddRPr);
   const bodySize = halfPtFromRPr(nRPr) ?? halfPtFromRPr(ddRPr);
   const bodySpacing = spacingOf(nPPr) ?? spacingOf(ddPPr);
-  const bodyLine =
-    bodySpacing?.lineRule === "auto" && bodySpacing.line != null
-      ? round2(bodySpacing.line / 240)
-      : null;
-  if (bodySpacing?.line != null && bodyLine == null) {
-    notes.push(`行距为固定值规则（lineRule=${bodySpacing.lineRule}），MDTT 仅支持倍数行距，未提取`);
+  // 正文行距：auto → 倍数；exact/atLeast → 固定行高（pt）
+  let bodyLine = null;      // 倍数（lineRule=auto）
+  let bodyLinePt = null;    // 固定行高 pt（lineRule=exact/atLeast）
+  let bodyLineRule = null;  // 提取到的 lineRule（auto/exact/atLeast）
+  if (bodySpacing?.line != null) {
+    const rule = bodySpacing.lineRule ?? "auto";
+    if (rule === "auto") {
+      bodyLine = round2(bodySpacing.line / 240);
+      bodyLineRule = "auto";
+    } else if (rule === "exact" || rule === "atLeast" || rule === "exactly") {
+      bodyLinePt = round2(bodySpacing.line / 20);
+      bodyLineRule = rule === "exactly" ? "exact" : rule;
+    } else {
+      notes.push(`行距规则「${rule}」不受支持，未提取`);
+    }
   }
 
   if (bodyFont) opts.fonts = { body: bodyFont };
   if (bodySize != null) opts.sizes = { body: bodySize };
 
+  // 单行行高（pt）计算函数：auto 时 = 字号×倍数；exact/atLeast 时 = 固定值
+  // 用于把标题段前/段后间距的"行"单位换算（auto 依赖各级标题字号，固定值则与字号无关）
+  const lineHeightOf = bodyLine != null
+    ? (sizePt) => (sizePt != null ? sizePt * bodyLine : null)
+    : bodyLinePt != null ? () => bodyLinePt : null;
+
   // ---- 标题样式：六级字体 / 字号 / 加粗 / 对齐 / 间距 ----
+  // 先按 styleId（HeadingN）匹配；未命中再按内置样式名 w:name（"heading N"/"标题 N"）兜底，
+  // 兼容 WPS 等 styleId 非标准的文档
   const hStyles = new Map();
   for (const st of stylesRoot ? kids(stylesRoot, "w:style") : []) {
     const m = /^Heading([1-6])$/.exec(attr(st, "w:styleId") ?? "");
     if (m) hStyles.set(Number(m[1]), st);
+  }
+  if (!hStyles.size) {
+    for (const st of stylesRoot ? kids(stylesRoot, "w:style") : []) {
+      const nameVal = attr(kid(st, "w:name"), "w:val") ?? "";
+      const m = /^(?:heading|标题)\s*([1-6])$/i.exec(nameVal.trim());
+      if (m && !hStyles.has(Number(m[1]))) hStyles.set(Number(m[1]), st);
+    }
+    if (hStyles.size) notes.push("标题样式按样式名（而非标准 styleId）识别，提取结果可能不完整");
   }
   const headingSizes = [];
   const headingBold = [];
@@ -233,18 +258,29 @@ export async function extractPresetOptions(docxPath) {
       spacing: {
         beforeLines: null,
         afterLines: null,
-        ...spacingPatch(beforeTw, headingSizes, bodyLine, "标题段前距", notes, "before"),
-        ...spacingPatch(afterTw, headingSizes, bodyLine, "标题段后距", notes, "after"),
+        ...spacingPatch(beforeTw, headingSizes, lineHeightOf, "标题段前距", notes, "before"),
+        ...spacingPatch(afterTw, headingSizes, lineHeightOf, "标题段后距", notes, "after"),
       },
     };
   }
 
+  // 标题格式二义性检测：同一级标题在正文中出现多种对齐时，给出明确反馈
+  detectHeadingAmbiguity(body, hStyles, notes);
+
   // ---- 段落：首行缩进 / 行距 / 段后距 / 对齐 ----
   const para = {};
-  if (bodyLine != null) para.line = bodyLine;
+  if (bodyLine != null) {
+    para.line = bodyLine;
+    para.lineRule = "auto";
+  } else if (bodyLinePt != null) {
+    para.line = bodyLinePt;
+    para.lineRule = bodyLineRule === "atLeast" ? "atLeast" : "exact";
+  }
+  // 单行行高（pt）用于"行"单位段后距换算
+  const lineHeightPtVal = bodyLine != null ? (bodySize != null ? bodySize * bodyLine : null) : bodyLinePt;
   if (bodySpacing?.after != null) {
-    if (bodyLine != null && bodySize != null) {
-      para.afterLines = round2(bodySpacing.after / (bodySize * bodyLine * 20));
+    if (lineHeightPtVal != null) {
+      para.afterLines = round2(bodySpacing.after / (lineHeightPtVal * 20));
     } else {
       para.afterLines = null;
       para.afterPt = round2(bodySpacing.after / 20);
@@ -258,13 +294,16 @@ export async function extractPresetOptions(docxPath) {
   if (bodyAlign) para.align = bodyAlign;
   opts.paragraph = para;
 
-  // ---- 页眉页脚：文字 / 对齐 / 字体字号 / 页码字段 ----
+  // ---- 页眉页脚：文字 / 对齐 / 字体字号 / 页码字段 / 图片 ----
   const hdr = await parseHeaderFooter(zip, sectPr, rels, "header", notes);
   const ftr = await parseHeaderFooter(zip, sectPr, rels, "footer", notes);
+  const images = {};
   if (hdr?.text) opts.header = { text: hdr.text, align: hdr.align ?? "left" };
+  if (hdr?.image) images.header = hdr.image; // 二进制与高度，保存预设时落盘
   if (hdr?.font) opts.fonts = { ...opts.fonts, header: hdr.font };
   if (hdr?.size != null) opts.sizes = { ...opts.sizes, header: hdr.size };
   if (ftr?.text) opts.footer = { text: ftr.text, align: ftr.align ?? "left" };
+  if (ftr?.image) images.footer = ftr.image;
   if (ftr?.font) opts.fonts = { ...opts.fonts, footer: ftr.font };
   if (ftr?.size != null) opts.sizes = { ...opts.sizes, footer: ftr.size };
 
@@ -291,22 +330,25 @@ export async function extractPresetOptions(docxPath) {
     notes.push("检测到页码设置（数字样式/起始页）但未找到页码字段，未提取");
   }
 
-  return { options: opts, notes };
+  return { options: opts, notes, images };
 }
 
 /**
- * 间距提取：优先换算为"行"单位（docx 的 before/after twip ÷ 字号×行距×20），
+ * 间距提取：优先换算为"行"单位（docx 的 before/after twip ÷ 单行行高×20），
  * 各级一致时返回 { xxxLines }；不一致或无法换算时退回 pt（取一级标题值）。
+ * lineHeightOf(sizePt) 返回单行行高（pt），auto 依赖各级字号、exact/atLeast 为固定值。
  * prefix 为 "before" / "after"。
  */
-function spacingPatch(twArr, sizeArr, line, label, notes, prefix) {
+function spacingPatch(twArr, sizeArr, lineHeightOf, label, notes, prefix) {
   const firstIdx = twArr.findIndex((t) => t != null);
   if (firstIdx === -1) return {};
   const key = `${prefix}Lines`;
-  if (line != null) {
-    const asLines = twArr.map((tw, i) =>
-      tw != null && sizeArr[i] ? tw / (sizeArr[i] * line * 20) : null
-    );
+  if (lineHeightOf != null) {
+    const asLines = twArr.map((tw, i) => {
+      if (tw == null) return null;
+      const h = lineHeightOf(sizeArr[i]);
+      return h != null ? tw / (h * 20) : null;
+    });
     if (asLines.every((v) => v != null && Math.abs(v - asLines[firstIdx]) < 0.05)) {
       return { [key]: round2(asLines[firstIdx]) };
     }
@@ -382,6 +424,45 @@ function extractBodyAlign(body, nPPr, ddPPr) {
   return null; // left / 缺省 = 默认
 }
 
+/** 对齐值的中文名 */
+function jcLabel(jc) {
+  return { center: "居中", left: "左对齐", right: "右对齐", both: "两端对齐", distribute: "两端对齐" }[jc] ?? jc;
+}
+
+/**
+ * 标题格式二义性检测：同一级标题在正文中存在多种对齐时，无法用单一格式标准表达，
+ * 需要在结果中明确反馈（保留样式表定义，并告知不一致的具体分布）。
+ */
+function detectHeadingAmbiguity(body, hStyles, notes) {
+  // 样式表各标题级的默认对齐（无 jc 时视为左对齐）
+  const styleJc = new Map();
+  for (let i = 1; i <= 6; i++) {
+    const st = hStyles.get(i);
+    const jc = st ? attr(kid(kid(st, "w:pPr"), "w:jc"), "w:val") : null;
+    styleJc.set(i, jc ?? "left");
+  }
+  // 统计正文各标题级的"实际渲染对齐"分布（直接 jc 覆盖样式表，无则继承样式表）
+  const dist = new Map(); // level -> Map(jc -> count)
+  for (const p of kids(body ?? null, "w:p")) {
+    const pPr = kid(p, "w:pPr");
+    if (!pPr) continue;
+    const styleId = attr(kid(pPr, "w:pStyle"), "w:val");
+    const m = /^Heading([1-6])$/.exec(styleId ?? "");
+    if (!m) continue;
+    const level = Number(m[1]);
+    const directJc = attr(kid(pPr, "w:jc"), "w:val");
+    const actualJc = directJc ?? styleJc.get(level) ?? "left";
+    if (!dist.has(level)) dist.set(level, new Map());
+    const map = dist.get(level);
+    map.set(actualJc, (map.get(actualJc) ?? 0) + 1);
+  }
+  for (const [level, map] of [...dist.entries()].sort((a, b) => a[0] - b[0])) {
+    if (map.size <= 1) continue;
+    const desc = [...map.entries()].map(([k, v]) => `${jcLabel(k)}×${v}`).join("、");
+    notes.push(`H${level} 标题对齐不一致（${desc}），同一级标题只能采用一种对齐，已采用样式表定义「${jcLabel(styleJc.get(level))}」`);
+  }
+}
+
 /** rels：rId → Target（相对 word/ 的路径） */
 function parseRels(relsXml) {
   const map = new Map();
@@ -431,7 +512,7 @@ function segmentsOf(p) {
   return segs;
 }
 
-/** 解析页眉/页脚 XML：文字行 / 对齐 / 字体字号 / 页码字段段落 */
+/** 解析页眉/页脚 XML：文字行 / 对齐 / 字体字号 / 页码字段段落 / 图片 */
 async function parseHeaderFooter(zip, sectPr, rels, kind, notes) {
   if (!sectPr) return null;
   const refs = kids(sectPr, `w:${kind}Reference`);
@@ -444,9 +525,33 @@ async function parseHeaderFooter(zip, sectPr, rels, kind, notes) {
   const root = rootEl(parseXml(xml));
   const label = kind === "header" ? "页眉" : "页脚";
 
-  if (deepAll(root, "w:drawing").length || deepAll(root, "w:pict").length) {
+  // 图片提取：沿 a:blip 的 r:embed 到该页眉/页脚自己的 rels 找媒体文件，读出二进制与显示高度
+  const blips = deepAll(root, "a:blip");
+  const drawingCount = deepAll(root, "w:drawing").length + deepAll(root, "w:pict").length;
+  let image = null;
+  if (blips.length) {
+    const hfRelsXml = (await zip.file(`word/_rels/${target.replace(/^\//, "")}.rels`)?.async("string")) ?? "";
+    const hfRels = parseRels(hfRelsXml);
+    const mediaTarget = hfRels.get(attr(blips[0], "r:embed"));
+    const buf = mediaTarget
+      ? await zip.file(`word/${mediaTarget.replace(/^\//, "")}`)?.async("nodebuffer")
+      : null;
+    if (buf) {
+      const extent = deepAll(root, "wp:extent")[0];
+      const cy = extent ? Number(attr(extent, "cy")) : null;
+      image = {
+        data: buf,
+        ext: path.extname(mediaTarget).slice(1).toLowerCase() || "png",
+        heightCm: cy ? round2(cy / 360000) : undefined, // EMU → cm
+      };
+    }
+  }
+  if (drawingCount > (image ? 1 : 0)) {
+    notes.push(`${label}含图形（如渐变色带），未提取`);
+  } else if (!image && drawingCount > 0) {
     notes.push(`${label}含图片/图形，未提取`);
   }
+  if (blips.length > 1) notes.push(`${label}含多张图片，仅提取第一张`);
   if (deepAll(root, "w:tbl").length) {
     notes.push(`${label}含表格布局，仅提取文字部分`);
   }
@@ -479,6 +584,7 @@ async function parseHeaderFooter(zip, sectPr, rels, kind, notes) {
     font,
     size: sizePt,
     pn,
+    image,
   };
 }
 
@@ -499,7 +605,7 @@ function jcToAlign(jc) {
 
 // ================= 保存与摘要 =================
 
-/** 提取并保存自定义预设；返回 { file, options, notes } */
+/** 提取并保存自定义预设；页眉/页脚图片落盘到预设旁并在 options 中记录路径。返回 { file, options, notes } */
 export async function extractAndSavePreset(docxPath, name, { overwrite = false } = {}) {
   if (!validPresetName(name)) {
     throw new Error(`预设名「${name}」不合法（仅限中英文、数字、下划线、连字符，且不以连字符开头）`);
@@ -508,7 +614,19 @@ export async function extractAndSavePreset(docxPath, name, { overwrite = false }
   if (fs.existsSync(file) && !overwrite) {
     throw new Error(`预设已存在「${file}」，如需覆盖请加 --overwrite`);
   }
-  const { options, notes } = await extractPresetOptions(docxPath);
+  const { options, notes, images } = await extractPresetOptions(docxPath);
+  fs.mkdirSync(presetsDir(), { recursive: true });
+  // 图片落盘：~/.mdtt/presets/<名>.header.png 等，options 记录绝对路径与显示高度
+  for (const kind of ["header", "footer"]) {
+    const img = images?.[kind];
+    if (!img) continue;
+    const imgPath = path.join(presetsDir(), `${name}.${kind}.${img.ext}`);
+    fs.writeFileSync(imgPath, img.data);
+    options[kind] = {
+      ...options[kind],
+      image: { path: imgPath, ...(img.heightCm != null ? { heightCm: img.heightCm } : {}) },
+    };
+  }
   const data = {
     name,
     source: path.resolve(docxPath),
@@ -516,7 +634,6 @@ export async function extractAndSavePreset(docxPath, name, { overwrite = false }
     notes,
     options,
   };
-  fs.mkdirSync(presetsDir(), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(data, null, 2) + "\n", "utf-8");
   return { file, options, notes };
 }
@@ -539,7 +656,12 @@ export function presetSummaryLines(options) {
     if (options.sizes?.body) parts.push(`${options.sizes.body}pt`);
     const pa = options.paragraph ?? {};
     if (pa.firstLineChars != null) parts.push(`首行缩进${pa.firstLineChars}字符`);
-    if (pa.line != null) parts.push(`行距${pa.line}`);
+    if (pa.line != null) {
+      const rule = pa.lineRule ?? "auto";
+      const unit = rule === "auto" ? "倍" : "pt";
+      const ruleLabel = { auto: "", exact: "（固定）", atLeast: "（最小值）" }[rule] ?? "";
+      parts.push(`行距${pa.line}${unit}${ruleLabel}`);
+    }
     if (pa.afterLines != null) parts.push(`段后${pa.afterLines}行`);
     else if (pa.afterPt != null) parts.push(`段后${pa.afterPt}pt`);
     if (pa.align) parts.push(`${cn[pa.align] ?? pa.align}对齐`);
@@ -553,13 +675,15 @@ export function presetSummaryLines(options) {
     if (options.heading?.bold) parts.push(`加粗 ${options.heading.bold.map((b) => (b ? "√" : "×")).join("")}`);
     if (parts.length) L.push(`标题    ${parts.join("，")}`);
   }
-  if (options.header?.text) {
+  if (options.header?.text || options.header?.image) {
     const extra = [
       `${cn[options.header.align] ?? "居中"}对齐`,
       options.fonts?.header ? options.fonts.header.eastAsia : null,
       options.sizes?.header ? `${options.sizes.header}pt` : null,
+      options.header?.image ? `图片已保存（高 ${options.header.image.heightCm ?? "?"}cm）` : null,
     ].filter(Boolean);
-    L.push(`页眉    ${options.header.text.split("\n").length}行文字，${extra.join(" ")}`);
+    const textInfo = options.header.text ? `${options.header.text.split("\n").length}行文字，` : "";
+    L.push(`页眉    ${textInfo}${extra.join(" ")}`);
   }
   if (options.footer?.text) {
     L.push(`页脚    ${options.footer.text.split("\n").length}行文字，${cn[options.footer.align] ?? "居中"}对齐`);

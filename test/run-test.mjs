@@ -3,15 +3,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
+import JSZip from "jszip";
 
 // 期望值统一由“配置声明 + 换算函数”推导，避免魔法数与实现耦合；
 // 换算函数本身由 unit-test.mjs 覆盖
 import { cmToTwip, ptToHalfPoint, PAGE_SIZES, CHINESE_FONT_SIZES, defaultOptions } from "../src/options.js";
 import { presets } from "../src/presets.js";
-
-const require = createRequire(import.meta.url);
-const JSZip = require("jszip");
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
@@ -384,7 +381,8 @@ console.log("\n—— 用例 7：--save-preset 格式提取与复用 ——");
   check("sundy往返-页眉字号 9", lo.sizes?.header === 9);
   check("sundy往返-页脚字号 10.5", lo.sizes?.footer === 10.5);
   check("sundy往返-页码「第X页/共Y页」居中", lo.pageNumber?.format === "第X页/共Y页" && lo.pageNumber?.align === "center" && lo.pageNumber?.pos === "bottom");
-  check("sundy往返-页眉图片/渐变已注明跳过", (lj.notes ?? []).some((n) => n.includes("页眉")));
+  check("sundy往返-页眉图片已提取并落盘", typeof lo.header?.image?.path === "string" && fs.existsSync(lo.header.image.path));
+  check("sundy往返-渐变图形已注明跳过", (lj.notes ?? []).some((n) => n.includes("图形")));
 
   // ---- 7.4 错误与边界 ----
   try { run([srcDocx, "--save-preset", "case7"]); check("预设重名报错提示 --overwrite", false); }
@@ -398,9 +396,84 @@ console.log("\n—— 用例 7：--save-preset 格式提取与复用 ——");
   try { run([mdPath, "--preset", "no-such-preset"]); check("未知预设列出自定义预设", false); }
   catch (e) { check("未知预设列出自定义预设", e.status === 1 && e.stderr.includes("自定义") && e.stderr.includes("case7")); }
 
+  // ---- 7.5 非标准 styleId 的标题识别（w:name 兜底） ----
+  const altDocx = path.join(__dirname, "preset-altstyleid.docx");
+  execFileSync(process.execPath, [cli, mdPath, "-o", altDocx, "--preset", "sundy"], { stdio: "pipe" });
+  {
+    const z = await JSZip.loadAsync(fs.readFileSync(altDocx));
+    const stylesXml = await z.file("word/styles.xml").async("string");
+    // 把标准 styleId Heading1-6 改成非标准 ID，保留 w:name，验证提取按样式名兜底识别标题
+    const altered = stylesXml.replace(/w:styleId="Heading([1-6])"/g, 'w:styleId="H$1Alt"');
+    z.file("word/styles.xml", altered);
+    fs.writeFileSync(altDocx, await z.generateAsync({ type: "nodebuffer" }));
+  }
+  run([altDocx, "--save-preset", "altstyle"]);
+  const aj = JSON.parse(fs.readFileSync(path.join(tmpHome, "presets", "altstyle.json"), "utf-8"));
+  check("非标准 styleId 兜底-标题字号已提取", Array.isArray(aj.options.sizes?.heading) && aj.options.sizes.heading[0] === 22 && aj.options.sizes.heading.length === 6);
+  check("非标准 styleId 兜底-已注明按样式名识别", (aj.notes ?? []).some((n) => n.includes("样式名")));
+
   // 清理
   fs.rmSync(tmpHome, { recursive: true, force: true });
-  for (const p of [srcDocx, reusedDocx, sundyDocx]) fs.rmSync(p, { force: true });
+  for (const p of [srcDocx, reusedDocx, sundyDocx, altDocx]) fs.rmSync(p, { force: true });
+}
+
+// ============ 用例 8：图片超链接/标题、行距规则、格式二义性 ============
+console.log("\n—— 用例 8：图片超链接/标题、行距规则、格式二义性 ——");
+{
+  const tmpHome8 = path.join(__dirname, "tmp-mdtt-home-8");
+  fs.rmSync(tmpHome8, { recursive: true, force: true });
+  const env8 = { ...process.env, MDTT_HOME: tmpHome8 };
+  const run8 = (args) => execFileSync(process.execPath, [cli, ...args], { stdio: "pipe", encoding: "utf-8", env: env8 });
+
+  // ---- 8.1 链接图片 + 图片标题 ----
+  const imgMd = path.join(__dirname, "img-link-title.md");
+  const imgDocx = path.join(__dirname, "img-link-title.docx");
+  fs.writeFileSync(imgMd, [
+    "[![logo](assets/test-image.png)](https://example.com/x)",
+    "",
+    '![带标题](assets/test-image.png "这是图片标题")',
+    "",
+  ].join("\n"), "utf-8");
+  execFileSync(process.execPath, [cli, imgMd, "-o", imgDocx], { stdio: "pipe" });
+  const iz = await JSZip.loadAsync(fs.readFileSync(imgDocx));
+  const iDoc = await iz.file("word/document.xml").async("string");
+  check("图片超链接-超链接包裹图片", /<w:hyperlink[^>]*>\s*<w:r>\s*<w:drawing>/.test(iDoc));
+  check("图片标题-标题文字已输出", iDoc.includes("这是图片标题"));
+  const titleIdx = iDoc.indexOf("这是图片标题");
+  check("图片标题-下方居中显示", iDoc.slice(iDoc.lastIndexOf("<w:p>", titleIdx), titleIdx).includes('w:val="center"'));
+
+  // ---- 8.2 固定行距（exact）提取与还原 ----
+  const exactDocx = path.join(__dirname, "exact-line.docx");
+  execFileSync(process.execPath, [cli, mdPath, "-o", exactDocx, "--line-rule", "exact", "--line-height", "20"], { stdio: "pipe" });
+  run8([exactDocx, "--save-preset", "exactline"]);
+  const ej = JSON.parse(fs.readFileSync(path.join(tmpHome8, "presets", "exactline.json"), "utf-8"));
+  check("固定行距-提取 line=20/lineRule=exact", ej.options.paragraph?.line === 20 && ej.options.paragraph?.lineRule === "exact");
+  const exactReused = path.join(__dirname, "exact-line-reused.docx");
+  run8([mdPath, "-o", exactReused, "--preset", "exactline"]);
+  const ez = await JSZip.loadAsync(fs.readFileSync(exactReused));
+  const eStyles = await ez.file("word/styles.xml").async("string");
+  check("固定行距-复用还原 w:line=400/lineRule=exact", /w:line="400"[^>]*w:lineRule="exact"/.test(eStyles));
+
+  // ---- 8.3 标题对齐二义性反馈 ----
+  const { Document, Packer, Paragraph, HeadingLevel, AlignmentType, TextRun } = await import("docx");
+  const ambDocx = path.join(__dirname, "ambiguous.docx");
+  const ambDoc = new Document({
+    sections: [{
+      children: [
+        new Paragraph({ heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER, children: [new TextRun("标题A")] }),
+        new Paragraph({ heading: HeadingLevel.HEADING_1, alignment: AlignmentType.LEFT, children: [new TextRun("标题B")] }),
+        new Paragraph("正文段落"),
+      ],
+    }],
+  });
+  fs.writeFileSync(ambDocx, await Packer.toBuffer(ambDoc));
+  run8([ambDocx, "--save-preset", "amb"]);
+  const ambJ = JSON.parse(fs.readFileSync(path.join(tmpHome8, "presets", "amb.json"), "utf-8"));
+  check("二义性-检测到 H1 对齐不一致", (ambJ.notes ?? []).some((n) => n.includes("H1") && n.includes("对齐不一致") && n.includes("居中") && n.includes("左对齐")));
+
+  // 清理
+  fs.rmSync(tmpHome8, { recursive: true, force: true });
+  for (const p of [imgMd, imgDocx, exactDocx, exactReused, ambDocx]) fs.rmSync(p, { force: true });
 }
 
 console.log(failed ? `\n${failed} 项校验未通过` : "\n全部校验通过");

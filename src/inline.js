@@ -12,9 +12,14 @@ import {
 } from "docx";
 import { ptToHalfPoint } from "./options.js";
 import { fontObj } from "./styles.js";
+import { contentWidthTwip } from "./page.js";
 
 const IMAGE_TYPES = { ".png": "png", ".jpg": "jpg", ".jpeg": "jpg", ".gif": "gif", ".bmp": "bmp" };
-const MAX_IMAGE_WIDTH = 600; // 像素，超出按比例缩小
+
+/** 正文图片宽度上限（像素）：页面内容区宽度按 96 DPI 换算（1px = 15twip），随页面设置动态变化 */
+export function maxImageWidthPx(opts) {
+  return Math.floor(contentWidthTwip(opts) / 15);
+}
 
 /** 读取 markdown-it token 的属性 */
 export function getAttr(token, name) {
@@ -82,7 +87,9 @@ export function parseInline(children, ctx) {
         break;
       case "image":
         try {
-          runs.push(makeImageRun(t, ctx));
+          const imgRun = makeImageRun(t, ctx);
+          // 图片被超链接包裹（[![alt](src)](url)）时，图片本身可点击跳转
+          runs.push(link ? new ExternalHyperlink({ link, children: [imgRun] }) : imgRun);
         } catch {
           runs.push(makeRun(`[图片缺失: ${t.content || getAttr(t, "src") || "未知来源"}]`, { ctx }));
         }
@@ -118,13 +125,13 @@ function makeRun(text, { bold, italic, strike, link, ctx }) {
   return new TextRun(runProps);
 }
 
-/** 正文图片：按 MAX_IMAGE_WIDTH 等比缩放 */
+/** 正文图片：超出内容区宽度时等比缩小 */
 function makeImageRun(token, ctx) {
   const src = getAttr(token, "src");
   if (!src) throw new Error("图片缺少 src 属性");
   const absPath = path.resolve(ctx.basePath, decodeURIComponent(src.replace(/^file:\/\//, "")));
   const { data, dim, type } = loadImage(absPath);
-  const scale = Math.min(1, MAX_IMAGE_WIDTH / dim.width);
+  const scale = Math.min(1, maxImageWidthPx(ctx.opts) / dim.width);
   return new ImageRun({
     type,
     data,

@@ -57,14 +57,25 @@ export function parseBlocks(tokens, start, end, ctx, state) {
       }
       case "paragraph_open": {
         const inlineTok = tokens[i + 1];
-        if (isImageOnly(inlineTok.children)) {
+        const imgInfo = imageParagraphInfo(inlineTok.children);
+        if (imgInfo) {
           out.push(
             new Paragraph({
               alignment: AlignmentType.CENTER,
-              spacing: { before: 120, after: 120 },
+              spacing: { before: 120, after: imgInfo.title ? 60 : 120 },
               children: parseInline(inlineTok.children, ctx),
             })
           );
+          if (imgInfo.title) {
+            // 图片标题（![alt](src "标题")）在图片下方居中输出
+            out.push(
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { after: 120 },
+                children: [new TextRun({ text: imgInfo.title, color: "666666", size: ptToHalfPoint(ctx.opts.sizes.body) })],
+              })
+            );
+          }
         } else {
           out.push(makeParagraph(parseInline(inlineTok.children, ctx), ctx));
         }
@@ -154,10 +165,23 @@ function makeParagraph(runs, ctx, extra = {}) {
   return new Paragraph({ ...props, ...extra });
 }
 
-/** 判断段落是否只包含图片（图片独立成段并居中，不参与首行缩进） */
-function isImageOnly(children) {
+/** 判断段落是否只包含图片（图片独立成段并居中，不参与首行缩进），返回 { title } 或 null */
+function imageParagraphInfo(children) {
   const meaningful = (children || []).filter((tok) => tok.type !== "text" || tok.content.trim() !== "");
-  return meaningful.length === 1 && meaningful[0].type === "image";
+  let imageTok = null;
+  if (meaningful.length === 1 && meaningful[0].type === "image") {
+    imageTok = meaningful[0];
+  } else if (
+    meaningful.length === 3 &&
+    meaningful[0].type === "link_open" &&
+    meaningful[1].type === "image" &&
+    meaningful[2].type === "link_close"
+  ) {
+    // 链接包裹图片：[![alt](src)](url)
+    imageTok = meaningful[1];
+  }
+  if (!imageTok) return null;
+  return { title: getAttr(imageTok, "title") || null };
 }
 
 function makeCodeBlock(content, ctx) {

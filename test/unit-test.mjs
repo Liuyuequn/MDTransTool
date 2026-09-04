@@ -9,9 +9,13 @@ import {
   ptToHalfPoint,
   parseFontSize,
   mergeOptions,
+  PAGE_SIZES,
+  defaultOptions,
 } from "../src/options.js";
 import { parseArgs, parseMargin, parseHeadingSize } from "../src/args.js";
 import { validPresetName } from "../src/preset-extract.js";
+import { maxImageWidthPx } from "../src/inline.js";
+import { linesToTwip } from "../src/styles.js";
 
 // ============ preset-extract.js：预设名校验 ============
 
@@ -245,4 +249,50 @@ test("parseArgs: 非选项 token 记为多余位置参数", () => {
   const r = parseArgs(["to"]);
   assert.equal(r.errors.length, 1);
   assert.match(r.errors[0], /多余的位置参数/);
+});
+
+test("parseArgs: --line-rule 与 --line-height 组合", () => {
+  const r = parseArgs(["--line-rule", "exact", "--line-height", "20"]);
+  assert.equal(r.patch.paragraph.lineRule, "exact");
+  assert.equal(r.patch.paragraph.line, 20);
+});
+
+test("parseArgs: 非法 --line-rule 记入 errors", () => {
+  const r = parseArgs(["--line-rule", "foo"]);
+  assert.equal(r.errors.length, 1);
+  assert.match(r.errors[0], /auto、exact 或 atLeast/);
+});
+
+// ============ styles.js：行距换算 ============
+
+test("linesToTwip: auto 倍数行距按 字号×倍数 换算", () => {
+  assert.equal(linesToTwip(1, 14, { line: 1.5, lineRule: "auto" }), 420); // 14×1.5×20
+});
+
+test("linesToTwip: exact 固定行距与字号无关", () => {
+  assert.equal(linesToTwip(1, 14, { line: 20, lineRule: "exact" }), 400);
+  assert.equal(linesToTwip(1, 22, { line: 20, lineRule: "exact" }), 400);
+});
+
+test("linesToTwip: 无 lineCfg 时退回默认 1.28 倍", () => {
+  assert.equal(linesToTwip(1, 14, null), Math.round(14 * 1.28 * 20));
+});
+
+// ============ inline.js：正文图片宽度上限 ============
+
+test("maxImageWidthPx: 默认 A4 = 内容区宽度(twip)÷15 取整", () => {
+  const contentTwip = PAGE_SIZES.A4.width - 2 * cmToTwip(defaultOptions.page.margin.left);
+  assert.equal(maxImageWidthPx(defaultOptions), Math.floor(contentTwip / 15));
+});
+
+test("maxImageWidthPx: 边距变宽时上限随之缩小", () => {
+  const wide = mergeOptions(defaultOptions, { page: { margin: { left: 5, right: 5 } } });
+  const contentTwip = PAGE_SIZES.A4.width - 2 * cmToTwip(5);
+  assert.equal(maxImageWidthPx(wide), Math.floor(contentTwip / 15));
+});
+
+test("maxImageWidthPx: 窄页面上限更小（A5 横向口径）", () => {
+  const a5 = mergeOptions(defaultOptions, { page: { size: "A5" } });
+  const contentTwip = PAGE_SIZES.A5.width - 2 * cmToTwip(defaultOptions.page.margin.left);
+  assert.equal(maxImageWidthPx(a5), Math.floor(contentTwip / 15));
 });

@@ -64,9 +64,15 @@ const SPECS = [
   },
   {
     name: "--line-height",
-    help: "行距倍数，如 1.5",
+    help: "行距值：lineRule=auto（默认）时为倍数（如 1.5）；exact/atLeast 时为固定行高（pt）",
     validate: (v) => (Number(v) > 0 || "应为正数"),
     apply: (v, p) => (p.paragraph = { ...p.paragraph, line: Number(v) }),
+  },
+  {
+    name: "--line-rule",
+    help: "行距规则：auto（倍数，默认）/ exact（固定行高）/ atLeast（最小行高），配合 --line-height 使用",
+    validate: (v) => ["auto", "exact", "atLeast"].includes(v) || "应为 auto、exact 或 atLeast",
+    apply: (v, p) => (p.paragraph = { ...p.paragraph, lineRule: v }),
   },
   // ---- 页眉 ----
   { name: "--header", help: "页眉文字（默认居中）", apply: (v, p) => (p.header = { ...p.header, text: v }) },

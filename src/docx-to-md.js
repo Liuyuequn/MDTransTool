@@ -77,7 +77,10 @@ export async function convertDocxToMarkdown(docxPath, outputDir) {
   );
 
   // 2. DOM 预处理：表格结构重建；含合并单元格的表格摘出待回填
-  const { html, htmlTables } = preprocessHtml(rawHtml);
+  //    占位符含随机段，避免与用户正文中的字面文本撞名；前缀固定，确保插入与回填一致
+  const placeholderPrefix = `MDTTHTMLTABLE-${crypto.randomBytes(8).toString("hex")}`;
+  const placeholder = (i) => `${placeholderPrefix}-${i}`;
+  const { html, htmlTables } = preprocessHtml(rawHtml, placeholder);
 
   // 3. turndown: HTML → Markdown
   const td = createTurndownService();
@@ -86,7 +89,7 @@ export async function convertDocxToMarkdown(docxPath, outputDir) {
   // 4. HTML 回退表格回填（含合并单元格的表格以 HTML 形式保留）
   //    替换回调形式避免 replacement 字符串中 $& 等特殊序列被解释
   htmlTables.forEach((tableHtml, i) => {
-    md = md.replace(`MDTTHTMLTABLE${i}`, () => `${MERGED_TABLE_NOTE}\n\n${tableHtml}`);
+    md = md.replace(placeholder(i), () => `${MERGED_TABLE_NOTE}\n\n${tableHtml}`);
   });
 
   // 5. 后处理
@@ -102,7 +105,7 @@ export async function convertDocxToMarkdown(docxPath, outputDir) {
  * - 含合并单元格（colspan/rowspan）的表格：GFM 管道语法无法表达合并，
  *   清理结构后整体摘出（占位符替换），转换完成后以 HTML 形式回填，完整保留合并语义
  */
-function preprocessHtml(rawHtml) {
+function preprocessHtml(rawHtml, placeholder) {
   const root = parseHtml(rawHtml);
   const htmlTables = [];
   for (const table of root.querySelectorAll("table")) {
@@ -113,17 +116,23 @@ function preprocessHtml(rawHtml) {
     );
     if (hasMerge) {
       htmlTables.push(buildCleanTable(rows, { keepAttrs: true }));
-      table.insertAdjacentHTML("beforebegin", `<p>MDTTHTMLTABLE${htmlTables.length - 1}</p>`);
+      table.insertAdjacentHTML("beforebegin", `<p>${placeholder(htmlTables.length - 1)}</p>`);
       table.remove();
     } else {
       table.insertAdjacentHTML("beforebegin", buildCleanTable(rows, { keepAttrs: false }));
       table.remove();
     }
   }
-  // 列表项内部的段落：<li><p>text</p></li> → <li>text</li>
-  let h = root.toString();
-  h = h.replace(/<li>\s*<p>([\s\S]*?)<\/p>\s*<\/li>/g, "<li>$1</li>");
-  return { html: h, htmlTables };
+  // 列表项内部的段落：<li><p>text</p></li> → <li>text</li>（DOM 层处理，不用正则）
+  for (const li of root.querySelectorAll("li")) {
+    const meaningful = li.childNodes.filter((n) => n.nodeType === 1 || n.text.trim());
+    const onlyP =
+      meaningful.length === 1 && meaningful[0].nodeType === 1 && meaningful[0].tagName === "P"
+        ? meaningful[0]
+        : null;
+    if (onlyP) onlyP.replaceWith(...onlyP.childNodes);
+  }
+  return { html: root.toString(), htmlTables };
 }
 
 const MERGE_ATTR_RE = /\b(?:colspan|rowspan)\s*=/i;
